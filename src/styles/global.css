@@ -1,0 +1,90 @@
+/* Shared tokens and base styles for the Shelf, the Frame and every battery.
+   Zinc only, no accent. Light muted is #63636b (darker than zinc-500
+   #71717a) so muted text reaches 4.5:1 on the tint and on the diff's
+   tinted number cells. */
+:root {
+  /* Which theme is on screen: both, by the OS, unless the Theme toggle sets
+     data-theme. Every colour that differs in dark is a light-dark() pair, so
+     this is the one place the theme is decided. */
+  color-scheme: light dark;
+  --bg: light-dark(#fff, #09090b);
+  --fg: light-dark(#09090b, #fafafa);
+  --muted: light-dark(#63636b, #a1a1aa);
+  --line: light-dark(#e4e4e7, #27272a);
+  --tint: light-dark(#f4f4f5, #18181b);
+  --card: light-dark(#fff, #09090b);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --pop-shadow: 0 10px 30px -10px rgba(0, 0, 0, 0.25);
+  --font-sans: "Geist Variable", Geist, Inter, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Geist Mono", ui-monospace, monospace;
+}
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 14px/1.5 var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+textarea, code, pre, kbd, samp { font-family: var(--font-mono); }
+
+a { color: inherit; text-decoration: none; }
+
+/* One focus ring, keyboard focus only, on every control, link and text box. */
+:focus { outline: none; }
+:focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
+
+/* ---- Page column ------------------------------------------------------- */
+.column { max-width: 640px; margin: 0 auto; padding: 56px 20px 140px; }
+.column.wide { max-width: 1040px; }
+@media (max-width: 639px) { .column { padding-top: 32px; } }
+
+.page-header { display: flex; align-items: flex-start; gap: 16px; margin-bottom: 24px; }
+.page-header-main { flex: 1; min-width: 0; }
+.page-title { font-size: 24px; font-weight: 600; letter-spacing: -0.025em; line-height: 1.3; margin: 0; overflow-wrap: break-word; }
+.page-sub { margin: 4px 0 0; color: var(--muted); }
+/* The header's right slot, holding the Theme toggle. */
+.header-end { flex: none; display: flex; align-items: center; min-width: 36px; min-height: 36px; }
+
+/* ---- Cards -------------------------------------------------------------- */
+.card { border: 1px solid var(--line); border-radius: 12px; background: var(--card); box-shadow: var(--shadow); overflow: hidden; }
+.card.pad { padding: 16px; }
+
+/* ---- Popover menu (Switcher, Theme toggle) ------------------------------ */
+.menu-host { position: relative; }
+.menu {
+  position: absolute; top: calc(100% + 6px); left: 0; z-index: 10;
+  width: 320px; max-width: calc(100vw - 24px); max-height: min(420px, 70vh); overflow: auto;
+  padding: 4px; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--card); box-shadow: var(--pop-shadow);
+  font-size: 14px; font-weight: 400; letter-spacing: normal; line-height: 1.5;
+}
+.menu[hidden] { display: none; }
+.menu-item {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 7px 10px; border: 0; border-radius: 6px; background: none;
+  color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.menu-item:hover { background: var(--tint); }
+.menu-item span { flex: 1; min-width: 0; }
+.menu-item svg { flex: none; }
+.menu-item.muted { color: var(--muted); }
+.menu hr { border: 0; border-top: 1px solid var(--line); margin: 4px -4px; }
+
+/* ---- Segmented control (Text Diff's view control, Markdown Preview's mode
+   control): a tinted track, the current option raised on it. Options are
+   buttons with aria-pressed. ---------------------------------------------- */
+.segmented { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 9px; background: var(--tint); }
+.segmented button {
+  display: inline-flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px;
+  border: 0; border-radius: 6px; background: none; color: var(--muted);
+  font: inherit; font-size: 13px; cursor: pointer;
+}
+.segmented button:hover { color: var(--fg); }
+.segmented button[aria-pressed="true"] { background: var(--bg); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12); }
+.segmented svg { flex: none; }

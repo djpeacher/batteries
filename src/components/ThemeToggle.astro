@@ -1,0 +1,88 @@
+---
+/**
+ * The Theme toggle: the header's right-slot button. Its icon shows the theme
+ * on screen (chosen by CSS, so it is right before any script runs). It opens
+ * a menu of Light, Dark and System, with the chosen one checked; System also
+ * names the OS's current theme.
+ */
+const sun = `<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>`;
+const moon = `<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>`;
+const monitor = `<rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/>`;
+const options = [
+  { value: "light", label: "Light", icon: sun },
+  { value: "dark", label: "Dark", icon: moon },
+  { value: "system", label: "System", icon: monitor },
+];
+---
+<div class="menu-host theme-toggle" data-menu>
+  <button class="theme-button" type="button" data-menu-button aria-expanded="false" aria-controls="theme-menu" aria-haspopup="true" aria-label="Theme">
+    <svg class="icon-light" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={sun} />
+    <svg class="icon-dark" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={moon} />
+  </button>
+  <div id="theme-menu" class="menu theme-menu" data-menu-panel role="group" aria-label="Theme" hidden>
+    {options.map((o) => (
+      <button class="menu-item" type="button" data-theme-option={o.value} aria-pressed="false">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" set:html={o.icon} />
+        <span>{o.label}{o.value === "system" && <> <span class="os-theme muted" data-os-theme></span></>}</span>
+        <svg class="check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+      </button>
+    ))}
+  </div>
+</div>
+
+<script>
+  import { closeMenu } from "../scripts/menu";
+  import { currentTheme, onOsThemeChange, onThemeChange, osTheme, preference, setPreference } from "../scripts/theme";
+  import { isPreference } from "../lib/theme";
+
+  const names = { light: "Light", dark: "Dark" } as const;
+
+  function render() {
+    const pref = preference();
+    document.querySelectorAll<HTMLElement>(".theme-toggle").forEach((root) => {
+      root.querySelector("[data-menu-button]")?.setAttribute("aria-label", `Theme: ${names[currentTheme()]}`);
+      root.querySelectorAll<HTMLButtonElement>("[data-theme-option]").forEach((b) => {
+        b.setAttribute("aria-pressed", String(b.dataset.themeOption === pref));
+      });
+      root.querySelectorAll<HTMLElement>("[data-os-theme]").forEach((s) => (s.textContent = names[osTheme()]));
+    });
+  }
+
+  document.querySelectorAll<HTMLElement>(".theme-toggle").forEach((root) => {
+    root.querySelectorAll<HTMLButtonElement>("[data-theme-option]").forEach((b) => {
+      b.addEventListener("click", () => {
+        const value = b.dataset.themeOption;
+        if (isPreference(value)) setPreference(value);
+        render();
+        closeMenu(root);
+        root.querySelector<HTMLButtonElement>("[data-menu-button]")?.focus();
+      });
+    });
+  });
+
+  // The OS flipping changes System's note even when the theme on screen doesn't.
+  onOsThemeChange(render);
+  onThemeChange(render);
+  render();
+</script>
+
+<style>
+  .theme-button {
+    display: inline-grid; place-items: center;
+    width: 36px; height: 36px; padding: 0;
+    border: 1px solid var(--line); border-radius: 8px;
+    background: var(--card); color: var(--fg); cursor: pointer;
+  }
+  .theme-button:hover, .theme-toggle[data-open] .theme-button { background: var(--tint); }
+
+  /* The icon follows the theme on screen: both icons sit in one cell, and
+     the theme's light-dark() pair strokes only its own. */
+  .theme-button svg { grid-area: 1 / 1; }
+  .icon-light { stroke: light-dark(currentColor, transparent); }
+  .icon-dark { stroke: light-dark(transparent, currentColor); }
+
+  .theme-menu { left: auto; right: 0; width: 176px; }
+  .os-theme { color: var(--muted); }
+  .menu-item .check { visibility: hidden; }
+  .menu-item[aria-pressed="true"] .check { visibility: visible; }
+</style>

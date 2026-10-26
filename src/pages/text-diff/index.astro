@@ -1,0 +1,417 @@
+---
+/**
+ * Text Diff: the old side and new side on top, the result below, compared
+ * live. The toolbar holds the view control, the ignore toggles, the change
+ * count and Swap. Each side takes a file by drop or by its own Open….
+ */
+import Frame from "../../layouts/Frame.astro";
+import * as meta from "./_meta";
+import { icon } from "../../lib/html";
+
+const sides = [
+  { key: "old", label: "Old" },
+  { key: "new", label: "New" },
+] as const;
+
+const views = [
+  { key: "split", label: "Side-by-side", icon: icon(`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>`, 16) },
+  { key: "combined", label: "Combined", icon: icon(`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 12h18"/>`, 16) },
+] as const;
+const ignores = [
+  { key: "whitespace", label: "Ignore whitespace" },
+  { key: "case", label: "Ignore case" },
+] as const;
+const openIcon = icon(`<path d="m6 14 1.5-2.9A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.5 6A2 2 0 0 1 18.4 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2"/>`);
+const swapIcon = icon(`<path d="M8 3 4 7l4 4M4 7h16M16 21l4-4-4-4M20 17H4"/>`, 16);
+const check = icon(`<path d="M20 6 9 17l-5-5"/>`, 11, 3);
+---
+<Frame name={meta.name} blurb={meta.blurb}>
+  <div class="td">
+    <div class="td-bar" role="group" aria-label="Text Diff toolbar">
+      <div class="segmented td-view" role="group" aria-label="View">
+        {views.map((v) => (
+          <button type="button" data-view={v.key} aria-pressed={v.key === "split" ? "true" : "false"}>
+            <Fragment set:html={v.icon} />{v.label}
+          </button>
+        ))}
+      </div>
+      <div class="td-ignores">
+        {ignores.map((g) => (
+          <button type="button" class="td-check" role="checkbox" aria-checked="false" data-ignore={g.key}>
+            <span class="td-check-box"><Fragment set:html={check} /></span>{g.label}
+          </button>
+        ))}
+      </div>
+      <div class="td-bar-end">
+        <span class="td-count" data-count></span>
+        <button type="button" class="td-btn" data-swap><Fragment set:html={swapIcon} />Swap</button>
+      </div>
+    </div>
+
+    <div class="td-sides">
+      {sides.map((s) => (
+        <section class="card td-side" aria-label={`${s.label} side`} data-drop={s.key}>
+          <header class="td-side-head">
+            <span class="td-side-label">{s.label}</span>
+            <span class="td-side-count" data-lines={s.key}></span>
+            <button type="button" class="td-open" data-open={s.key} aria-label={`Open a file into the ${s.key} side`}>
+              <Fragment set:html={openIcon} />Open…
+            </button>
+          </header>
+          <div class="td-box-wrap">
+            <div class="td-gutter" aria-hidden="true"><pre data-gutter={s.key}>1</pre></div>
+            <textarea
+              class="td-box"
+              data-side={s.key}
+              wrap="off"
+              spellcheck="false"
+              autocomplete="off"
+              aria-label={`${s.label} text`}
+              placeholder={`Paste or type the ${s.key} text, or drop a file`}
+            ></textarea>
+          </div>
+          <div class="td-drop" aria-hidden="true">Drop to replace the {s.key} side</div>
+        </section>
+      ))}
+    </div>
+    <input type="file" data-file hidden />
+
+    <section class="card td-result" aria-label="Result">
+      <header class="td-result-head">Result</header>
+      <div class="td-result-body" data-result tabindex="-1"></div>
+    </section>
+  </div>
+</Frame>
+
+<script>
+  import { compare, LIVE_TIME_LIMIT, toLines, type Comparison } from "./_compare";
+  import { renderCount, renderCountComparing, renderResult, renderResultComparing } from "./_render";
+  import { loadIgnore, loadTexts, loadView, saveIgnore, saveTexts, saveView, type Ignore, type View } from "./_storage";
+  import { replaceText, replaceTogether, wireTextBox } from "../../scripts/textbox";
+  import { wireFileDrop } from "../../scripts/filedrop";
+  import { phone } from "../../scripts/phone";
+
+  const oldBox = document.querySelector<HTMLTextAreaElement>('textarea[data-side="old"]')!;
+  const newBox = document.querySelector<HTMLTextAreaElement>('textarea[data-side="new"]')!;
+  const count = document.querySelector<HTMLElement>("[data-count]")!;
+  const result = document.querySelector<HTMLElement>("[data-result]")!;
+  const viewButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-view]")];
+  const ignoreButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-ignore]")];
+  const fileInput = document.querySelector<HTMLInputElement>("[data-file]")!;
+  type SideKey = "old" | "new";
+  const boxes: Record<SideKey, HTMLTextAreaElement> = { old: oldBox, new: newBox };
+  const gutters = {
+    old: document.querySelector<HTMLElement>('[data-gutter="old"]')!,
+    new: document.querySelector<HTMLElement>('[data-gutter="new"]')!,
+  };
+  const lineCounts = {
+    old: document.querySelector<HTMLElement>('[data-lines="old"]')!,
+    new: document.querySelector<HTMLElement>('[data-lines="new"]')!,
+  };
+
+  // The saved view, and phone width, which shows combined without saving it.
+  let view: View = loadView();
+  // Opened fold rows, by id: held for this page only, never saved.
+  const expanded = new Set<string>();
+  const ignore: Record<Ignore, boolean> = { whitespace: loadIgnore("whitespace"), case: loadIgnore("case") };
+
+  // The gutter and header count number lines as the result does: a trailing
+  // newline adds no line, and an empty side still shows line 1.
+  function refreshSide(side: SideKey) {
+    const n = toLines(boxes[side].value).length;
+    gutters[side].textContent = Array.from({ length: Math.max(n, 1) }, (_, i) => i + 1).join("\n");
+    lineCounts[side].textContent = n ? `${n} line${n === 1 ? "" : "s"}` : "";
+    syncGutter(side);
+  }
+  function syncGutter(side: SideKey) {
+    gutters[side].style.transform = `translateY(${-boxes[side].scrollTop}px)`;
+  }
+
+  // Live runs stop at the time limit. Compare lifts it for the texts on
+  // screen; any edit to either side goes back to the limit.
+  let unlimited = false;
+  // Bumped by every run, so a Compare waiting to start knows it was overtaken.
+  let run = 0;
+  let last: Comparison | null = null;
+
+  function show(c: Comparison) {
+    last = c;
+    count.innerHTML = renderCount(c);
+    redraw();
+  }
+  /** Redraws the last comparison and the toolbar state, without comparing again. */
+  function redraw() {
+    if (last) result.innerHTML = renderResult(last, phone.matches ? "combined" : view);
+    for (const b of viewButtons) b.setAttribute("aria-pressed", String(b.dataset.view === view));
+    for (const b of ignoreButtons) b.setAttribute("aria-checked", String(ignore[b.dataset.ignore as Ignore]));
+  }
+  const runCompare = (timeLimit?: number) =>
+    compare(oldBox.value, newBox.value, {
+      expanded,
+      ignoreWhitespace: ignore.whitespace,
+      ignoreCase: ignore.case,
+      timeLimit,
+    });
+
+  /** Compares again: live under the limit, or behind the spinner once Compare has lifted it. */
+  async function refresh() {
+    const mine = ++run;
+    if (!unlimited) return show(runCompare(LIVE_TIME_LIMIT));
+    count.innerHTML = renderCountComparing();
+    result.innerHTML = renderResultComparing();
+    // Let the browser paint the spinner before the long run blocks it.
+    await new Promise((r) => requestAnimationFrame(() => setTimeout(r, 0)));
+    if (mine !== run) return;
+    show(runCompare());
+  }
+
+  const texts = loadTexts();
+  oldBox.value = texts.old;
+  newBox.value = texts.new;
+
+  for (const side of ["old", "new"] as const) {
+    const box = boxes[side];
+    wireTextBox(box);
+    // Typing, Drop, Open, Swap and Cmd-Z all arrive here as native edits.
+    box.addEventListener("input", () => {
+      // Both sides together: editing either one ends the first visit.
+      saveTexts({ old: oldBox.value, new: newBox.value });
+      refreshSide(side);
+      unlimited = false;
+      refresh();
+    });
+    box.addEventListener("scroll", () => syncGutter(side));
+    refreshSide(side);
+  }
+
+  // Swap: both sides at once, so one Cmd-Z restores both.
+  document.querySelector("[data-swap]")!.addEventListener("click", () => {
+    replaceTogether([
+      [oldBox, newBox.value],
+      [newBox, oldBox.value],
+    ]);
+  });
+
+  // Open… and drop: read the file here, in the browser (nothing is
+  // uploaded), and replace that side.
+  async function load(side: SideKey, file: File | undefined) {
+    if (!file) return;
+    replaceText(boxes[side], await file.text());
+  }
+  let openSide: SideKey = "old";
+  for (const b of document.querySelectorAll<HTMLButtonElement>("[data-open]")) {
+    b.addEventListener("click", () => {
+      openSide = b.dataset.open === "new" ? "new" : "old";
+      fileInput.value = "";
+      fileInput.click();
+    });
+  }
+  fileInput.addEventListener("change", () => load(openSide, fileInput.files?.[0]));
+
+  // A file dragged over the page: the side under the pointer shows the drop
+  // overlay and the other side a dashed outline. Dropping elsewhere does nothing.
+  const root = document.querySelector<HTMLElement>(".td")!;
+  const dropZones = [...document.querySelectorAll<HTMLElement>("[data-drop]")];
+  const sideAt = (e: DragEvent) =>
+    ((e.target as Element).closest?.("[data-drop]") as HTMLElement | null)?.dataset.drop as SideKey | undefined;
+  wireFileDrop({
+    onDrag(on, e) {
+      const side = e && sideAt(e);
+      root.toggleAttribute("data-dragging", on);
+      for (const z of dropZones) z.toggleAttribute("data-drag-over", on && z.dataset.drop === side);
+    },
+    accepts: (e) => !!sideAt(e),
+    onDrop(file, e) {
+      const side = sideAt(e);
+      if (side) load(side, file);
+    },
+  });
+
+  for (const b of viewButtons) {
+    b.addEventListener("click", () => {
+      view = b.dataset.view === "combined" ? "combined" : "split";
+      saveView(view);
+      redraw();
+    });
+  }
+  phone.addEventListener("change", redraw);
+
+  // A native button, so Enter and Space toggle it like a click.
+  for (const b of ignoreButtons) {
+    b.addEventListener("click", () => {
+      const which = b.dataset.ignore as Ignore;
+      ignore[which] = !ignore[which];
+      saveIgnore(which, ignore[which]);
+      refresh();
+    });
+  }
+
+  result.addEventListener("click", async (e) => {
+    const compareButton = (e.target as Element).closest("[data-compare]");
+    if (compareButton) {
+      // The button goes with the message; keep keyboard focus in the result.
+      const hadFocus = document.activeElement === compareButton;
+      unlimited = true;
+      await refresh();
+      if (hadFocus) result.focus();
+      return;
+    }
+    const fold = (e.target as Element).closest<HTMLButtonElement>("[data-expand]");
+    if (!fold) return;
+    // Keep keyboard focus in the result: on the next fold row, else the result itself.
+    const folds = [...result.querySelectorAll("[data-expand]")];
+    const at = folds.indexOf(fold);
+    const hadFocus = document.activeElement === fold;
+    expanded.add(fold.dataset.expand!);
+    await refresh();
+    if (hadFocus) {
+      const next = result.querySelectorAll<HTMLElement>("[data-expand]")[at];
+      (next ?? result).focus();
+    }
+  });
+  refresh();
+</script>
+
+<style>
+  .td-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; min-height: 32px; margin-bottom: 16px; }
+  .td-bar-end { min-width: 0; margin-left: auto; display: flex; align-items: center; gap: 12px; }
+  .td-count { display: inline-flex; align-items: center; gap: 6px; font: 12.5px var(--font-mono); color: var(--muted); white-space: nowrap; }
+  .td-count:empty { display: none; }
+  /* A message may wrap at phone width; the +N −M figure never does. */
+  .td-count :global(.msg) { white-space: normal; }
+  .td-count :global(svg) { flex: none; }
+
+  /* The ignore toggles: check buttons shaped like Swap, a drawn square that fills when on. */
+  .td-ignores { display: inline-flex; flex-wrap: wrap; gap: 8px; }
+  .td-check {
+    display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px 0 10px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg);
+    font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
+  .td-check:hover { background: var(--tint); }
+  .td-check-box {
+    display: grid; place-items: center; width: 14px; height: 14px; box-sizing: border-box;
+    border: 1.5px solid var(--muted); border-radius: 4px; color: var(--bg);
+  }
+  .td-check-box :global(svg) { visibility: hidden; }
+  .td-check[aria-checked="true"] .td-check-box { background: var(--fg); border-color: var(--fg); }
+  .td-check[aria-checked="true"] .td-check-box :global(svg) { visibility: visible; }
+  .td-count :global(.add) { color: var(--diff-add-ink); }
+  .td-count :global(.del) { color: var(--diff-del-ink); }
+
+  .td-sides { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+  .td-side { position: relative; min-width: 0; }
+  .td-side-head { display: flex; align-items: center; gap: 8px; height: 36px; padding: 0 6px 0 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .td-side-label { font-weight: 500; }
+  .td-side-count { color: var(--muted); font: 12px var(--font-mono); }
+  /* Open…: a ghost button, quiet until hovered. */
+  .td-open {
+    display: inline-flex; align-items: center; gap: 5px; height: 26px; margin-left: auto; padding: 0 8px;
+    border: 0; border-radius: 6px; background: none; color: var(--muted);
+    font: inherit; font-size: 12.5px; cursor: pointer;
+  }
+  .td-open:hover { background: var(--tint); color: var(--fg); }
+  .td-open :global(svg) { flex: none; }
+
+  /* The gutter: shaded line numbers, moved with the box's scroll by the script. */
+  .td-box-wrap { display: grid; grid-template-columns: 48px minmax(0, 1fr); height: 240px; }
+  .td-gutter { overflow: hidden; background: var(--tint); border-right: 1px solid var(--line); border-radius: 0 0 0 12px; }
+  .td-gutter pre {
+    margin: 0; padding: 10px 8px 10px 0; text-align: right; color: var(--muted);
+    font: 12.5px/1.6 var(--font-mono); user-select: none; will-change: transform;
+  }
+  .td-box {
+    display: block; width: 100%; height: 240px; margin: 0; padding: 10px 12px;
+    border: 0; border-radius: 0 0 12px 0; resize: none; background: transparent; color: var(--fg);
+    font: 12.5px/1.6 var(--font-mono); white-space: pre; overflow: auto; tab-size: 4;
+  }
+
+  /* A file dragged over the page: an overlay on the side under it, an outline on the other. */
+  .td-drop {
+    display: none; position: absolute; inset: 0; z-index: 2; place-items: center; padding: 16px;
+    border: 2px dashed var(--muted); border-radius: inherit; text-align: center;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--fg); font-weight: 600;
+    pointer-events: none;
+  }
+  .td-side[data-drag-over] .td-drop { display: grid; }
+  .td[data-dragging] .td-side:not([data-drag-over]) { outline: 1px dashed var(--muted); outline-offset: 2px; }
+  .td-box::placeholder { color: var(--muted); }
+  .td-box:focus-visible { outline-offset: -2px; }
+
+  @media (max-width: 639px) {
+    /* Phone width: the result is always combined, so the view control has nothing to switch. */
+    .td-view { display: none; }
+    .td-sides { grid-template-columns: minmax(0, 1fr); }
+  }
+
+  .td-result { margin-top: 16px; }
+  .td-result-head { display: flex; align-items: center; height: 40px; padding: 0 14px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 500; }
+  .td-result-body { overflow: auto; }
+  .td-result-body:focus-visible { outline-offset: -2px; }
+</style>
+
+<style is:global>
+  /* The diff's red and green: the result's tints, the change count and the
+     signs. Every muted or foreground text on these tints reaches 4.5:1. */
+  :root {
+    --diff-del-row: rgba(248, 81, 73, 0.12);
+    --diff-add-row: rgba(46, 160, 67, 0.14);
+    --diff-del-num: rgba(248, 81, 73, 0.2);
+    --diff-add-num: rgba(46, 160, 67, 0.22);
+    --diff-del-word: light-dark(rgba(248, 81, 73, 0.35), rgba(248, 81, 73, 0.4));
+    --diff-add-word: light-dark(rgba(46, 160, 67, 0.38), rgba(46, 160, 67, 0.42));
+    --diff-del-ink: light-dark(#cf222e, #f85149);
+    --diff-add-ink: light-dark(#1a7f37, #3fb950);
+  }
+
+  .td-table { width: 100%; border-collapse: collapse; table-layout: fixed; font: 12.5px/1.6 var(--font-mono); }
+  .td-table col.td-c-num { width: 48px; }
+  .td-table col.td-c-sign { width: 20px; }
+  .td-table td { vertical-align: top; }
+  .td-table tbody tr:first-child td { padding-top: 4px; }
+  .td-table tbody tr:last-child td { padding-bottom: 4px; }
+  .td-num { padding: 0 8px; text-align: right; color: var(--muted); user-select: none; }
+  .td-sign { text-align: center; color: var(--muted); user-select: none; }
+  .td-code { padding: 0 10px 0 2px; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .td-split .td-new-start { border-left: 1px solid var(--line); }
+
+  .td-del { background: var(--diff-del-row); }
+  .td-add { background: var(--diff-add-row); }
+  .td-num.td-del { background: var(--diff-del-num); }
+  .td-num.td-add { background: var(--diff-add-num); }
+  .td-del .td-w { background: var(--diff-del-word); border-radius: 2px; }
+  .td-add .td-w { background: var(--diff-add-word); border-radius: 2px; }
+  .td-blank { background: var(--tint); }
+
+  .td-combined .td-code { padding-left: 2px; }
+
+  /* A fold row: a 30px grey bar between hairlines, its arrow in the number column. */
+  .td-table tbody tr.td-fold td { padding: 0; background: var(--tint); border-block: 1px solid var(--line); }
+  .td-expand {
+    display: grid; grid-template-columns: 48px 1fr; align-items: center; width: 100%; height: 30px;
+    padding: 0; border: 0; background: none; color: var(--muted); text-align: left;
+    font: 12px var(--font-sans); cursor: pointer;
+  }
+  .td-combined .td-expand { grid-template-columns: 116px 1fr; }
+  .td-expand:hover { color: var(--fg); background: color-mix(in srgb, var(--fg) 6%, transparent); }
+  .td-expand:focus-visible { outline-offset: -2px; }
+  .td-fold-ic { display: grid; place-items: center; height: 100%; border-right: 1px solid var(--line); }
+  .td-expand > span:last-child { padding-left: 12px; }
+
+  /* Swap and Compare: the bordered button the check buttons are shaped like.
+     Global, since Compare is drawn into the result by the script. */
+  .td-btn {
+    display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg);
+    font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
+  .td-btn:hover { background: var(--tint); }
+  .td-btn svg { flex: none; }
+  .td-msg .td-btn { margin-left: 6px; }
+
+  .td-spin { animation: td-spin 0.8s linear infinite; }
+  @keyframes td-spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { .td-spin { animation-duration: 2.4s; } }
+
+  .td-msg { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 10px; padding: 40px 16px; color: var(--muted); font-size: 13px; }
+</style>

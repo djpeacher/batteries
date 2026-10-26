@@ -1,0 +1,35 @@
+---
+/**
+ * The Frame: what surrounds every battery's page. The 1040px column, the
+ * Switcher on the battery's name, its blurb beneath, and the header's right
+ * slot. The battery's own content goes in the default slot, with the Local
+ * promise below it.
+ */
+import Base from "./Base.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
+import LocalPromise from "../components/LocalPromise.astro";
+import Switcher from "../components/Switcher.astro";
+
+interface Props {
+  name: string;
+  blurb: string;
+}
+const { name, blurb } = Astro.props;
+---
+<Base title={`${name} · Batteries`}>
+  <main class="column wide">
+    <header class="page-header frame-header">
+      <div class="page-header-main">
+        <Switcher name={name} />
+        <p class="page-sub">{blurb}</p>
+      </div>
+      <div class="header-end"><ThemeToggle /></div>
+    </header>
+    <slot />
+    <LocalPromise />
+  </main>
+</Base>
+
+<style>
+  .frame-header { align-items: center; }
+</style>

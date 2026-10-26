@@ -1,0 +1,26 @@
+---
+/** The Shelf layout: the 640px column with a title, a tagline, the header's right slot and the Local promise below the content. */
+import Base from "./Base.astro";
+import ThemeToggle from "../components/ThemeToggle.astro";
+import LocalPromise from "../components/LocalPromise.astro";
+
+interface Props {
+  title: string;
+  heading: string;
+  tagline?: string;
+}
+const { title, heading, tagline } = Astro.props;
+---
+<Base title={title}>
+  <main class="column">
+    <header class="page-header">
+      <div class="page-header-main">
+        <h1 class="page-title">{heading}</h1>
+        {tagline && <p class="page-sub">{tagline}</p>}
+      </div>
+      <div class="header-end"><ThemeToggle /></div>
+    </header>
+    <slot />
+    <LocalPromise />
+  </main>
+</Base>

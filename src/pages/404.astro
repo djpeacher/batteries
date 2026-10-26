@@ -1,0 +1,13 @@
+---
+/** Not found: a mistyped address, in the Shelf's look, with a way back. */
+import Shelf from "../layouts/Shelf.astro";
+const home = import.meta.env.BASE_URL;
+---
+<Shelf title="Not found · Batteries" heading="Not found">
+  <p><a class="back" href={home}>← All batteries</a></p>
+</Shelf>
+
+<style>
+  .back { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--line); }
+  .back:hover { text-decoration-color: currentColor; }
+</style>

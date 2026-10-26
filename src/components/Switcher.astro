@@ -1,0 +1,64 @@
+---
+/**
+ * The Switcher: the battery's name in the Frame, as a button that opens a
+ * menu of "← All batteries", then every battery with the current one checked.
+ */
+import { batteries } from "../lib/batteries";
+
+interface Props {
+  name: string;
+}
+const { name } = Astro.props;
+const home = import.meta.env.BASE_URL;
+const current = Astro.url.pathname;
+---
+<div class="menu-host switcher" data-menu>
+  <h1 class="page-title">
+    <button class="switcher-button" type="button" data-menu-button aria-expanded="false" aria-controls="switcher-menu" aria-haspopup="true">
+      <span>{name}</span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m7 15 5 5 5-5M7 9l5-5 5 5" /></svg>
+    </button>
+  </h1>
+  <nav id="switcher-menu" class="menu" data-menu-panel aria-label="Batteries" hidden>
+    <a class="menu-item muted" href={home}>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6" /></svg>
+      <span>All batteries</span>
+    </a>
+    <hr />
+    {batteries.map((b) =>
+      b.href === current ? (
+        <a class="menu-item" href={b.href} aria-current="page" data-current>
+          <span>{b.name}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>
+        </a>
+      ) : (
+        <a class="menu-item" href={b.href}><span>{b.name}</span></a>
+      ),
+    )}
+  </nav>
+</div>
+
+<script>
+  import { closeMenu } from "../scripts/menu";
+
+  // Picking the battery you're already in just closes the Switcher.
+  document.querySelectorAll<HTMLAnchorElement>(".switcher [data-current]").forEach((a) => {
+    a.addEventListener("click", (e) => {
+      e.preventDefault();
+      closeMenu(a.closest("[data-menu]")!);
+    });
+  });
+</script>
+
+<style>
+  .switcher { display: inline-block; max-width: calc(100% + 10px); margin-left: -10px; }
+  .switcher-button {
+    display: inline-flex; align-items: center; gap: 10px; max-width: 100%;
+    padding: 4px 10px; border: 0; border-radius: 8px;
+    background: none; color: inherit; font: inherit; letter-spacing: inherit; text-align: left; cursor: pointer;
+  }
+  .switcher-button:hover, .switcher[data-open] .switcher-button { background: var(--tint); }
+  .switcher-button span { min-width: 0; }
+  .switcher-button svg { flex: none; color: var(--muted); }
+  .switcher + :global(.page-sub) { margin-top: 2px; }
+</style>
