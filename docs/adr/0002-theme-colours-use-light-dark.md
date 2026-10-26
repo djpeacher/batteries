@@ -1,0 +1,3 @@
+# Theme colours are `light-dark()` pairs driven by `color-scheme`
+
+Every colour that differs between themes is written once in `src/styles/global.css` as a `light-dark(light, dark)` pair. The theme is chosen only by `color-scheme`: `light dark` by default, so System follows the OS with no script, and forced by `:root[data-theme="light|dark"]` when the Theme toggle picks one. The alternative was a duplicate dark block under both `@media (prefers-color-scheme: dark)` and `[data-theme="dark"]`, and those copies had already started to drift. The cost is a browser floor of Chrome 123, Safari 17.5 and Firefox 120. Older browsers get no theme colours at all. Any new colour must be a `light-dark()` pair, not a separate dark override.

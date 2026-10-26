@@ -1,0 +1,3 @@
+# Mermaid and KaTeX load lazily and are self-hosted
+
+Markdown Preview draws diagrams with Mermaid and math with KaTeX. Both are large, so each is loaded by dynamic `import()` only when a document first contains a diagram or a formula. Both are bundled from npm and served from the site's own origin: no CDN, so the network panel shows no request to another origin. KaTeX's stylesheet is imported with `?inline` and inserted as a `<style>` element, because a plain dynamic CSS import gets hoisted by Astro into the page head and would load on every visit. Any future lazily loaded library with its own CSS needs the same `?inline` treatment.

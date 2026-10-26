@@ -1,0 +1,3 @@
+# A Battery is a folder, found by discovery
+
+Each Battery is one folder under `src/pages/<slug>/`, holding its page and a `_meta.ts` with `name` and `blurb`. The folder name is the Battery's address. `src/lib/batteries.ts` collects every `_meta.ts` with `import.meta.glob`, and both the Shelf and the Switcher read that list. There is no central registry, so adding a Battery means adding a folder and nothing else. A hand-kept list would let the Shelf and the Switcher drift apart from the pages that actually exist. The leading underscore keeps Astro from turning `_meta.ts` (and a Battery's other `_*.ts` scripts) into routes. Renaming a folder changes the Battery's public address.
