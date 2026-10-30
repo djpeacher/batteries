@@ -39,6 +39,28 @@ a { color: inherit; text-decoration: none; }
 :focus { outline: none; }
 :focus-visible { outline: 2px solid var(--muted); outline-offset: 2px; }
 
+/* ---- Code colours: stock GitHub syntax colours (highlight.js github /
+   github-dark), shared by every battery that colours code. Exempt from the
+   zinc-only rule. -------------------------------------------------------- */
+:root {
+  --hl-keyword: light-dark(#d73a49, #ff7b72); --hl-entity: light-dark(#6f42c1, #d2a8ff);
+  --hl-constant: light-dark(#005cc5, #79c0ff); --hl-string: light-dark(#032f62, #a5d6ff);
+  --hl-variable: light-dark(#e36209, #ffa657); --hl-comment: light-dark(#6a737d, #8b949e);
+  --hl-tag: light-dark(#22863a, #7ee787); --hl-heading: light-dark(#005cc5, #1f6feb);
+  --hl-list: light-dark(#735c0f, #f2cc60); --hl-ins: light-dark(#22863a, #aff5b4);
+  --hl-ins-bg: light-dark(#f0fff4, #033a16); --hl-del: light-dark(#b31d28, #ffdcd7);
+  --hl-del-bg: light-dark(#ffeef0, #67060c); --hl-repr: light-dark(#bc4c00, #ffa657);
+}
+
+/* ---- Pretty Print: the fold toggle's open-state grey and the error panel's
+   dark card (dark in both themes; its reds are exempt from the zinc-only
+   rule, as the diagram error's are). ------------------------------------ */
+:root {
+  --pp-fold: light-dark(#8c8c94, #71717a);
+  --pp-err-bg: light-dark(#18181b, #000); --pp-err-border: light-dark(#18181b, #3f3f46);
+  --pp-err-rule: light-dark(#3f3f46, #27272a);
+}
+
 /* ---- Page column ------------------------------------------------------- */
 .column { max-width: 640px; margin: 0 auto; padding: 56px 20px 140px; }
 .column.wide { max-width: 1040px; }

@@ -25,6 +25,6 @@ describe("collectBatteries", () => {
 
 describe("batteries", () => {
   it("holds every battery folder in the project, in alphabetical order", () => {
-    expect(batteries.map((b) => b.name)).toEqual(["Markdown Preview", "Text Diff"]);
+    expect(batteries.map((b) => b.name)).toEqual(["Markdown Preview", "Pretty Print", "Text Diff"]);
   });
 });

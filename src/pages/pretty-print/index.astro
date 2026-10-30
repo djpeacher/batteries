@@ -1,0 +1,577 @@
+---
+/**
+ * Pretty Print: the text side and the formatted side, side by side under
+ * the toolbar, formatted live on every input. The formatted side's header
+ * holds the read-only language label and Fold all / Unfold all. The text
+ * and the mode are saved locally; folds never are. A file dropped anywhere,
+ * or picked with Open…, replaces the text. Copy and Download give the full
+ * formatted text, whatever is folded. Text too big to save or to colour
+ * gets the size notice at the bottom of the formatted side.
+ */
+import Frame from "../../layouts/Frame.astro";
+import * as meta from "./_meta";
+import { MODE_KEY } from "./_storage";
+import { icon } from "../../lib/html";
+const textIcon = icon(`<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>`);
+const formattedIcon = icon(`<path d="M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"/><path d="M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"/>`);
+const foldAllIcon = icon(`<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>`);
+const unfoldAllIcon = icon(`<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>`);
+const openIcon = icon(`<path d="m6 14 1.5-2.9A2 2 0 0 1 9.2 10H20a2 2 0 0 1 1.9 2.5l-1.5 6A2 2 0 0 1 18.4 20H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.7.9l.8 1.2a2 2 0 0 0 1.7.9H18a2 2 0 0 1 2 2v2"/>`);
+const copyIcon = icon(`<rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>`);
+const downloadIcon = icon(`<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5 5 5-5"/><path d="M12 15V3"/>`);
+const uploadIcon = icon(`<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12"/>`, 22);
+const splitIcon = icon(`<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M12 3v18"/>`);
+const modes = [
+  { key: "split", label: "Split", icon: splitIcon },
+  { key: "text", label: "Text", icon: textIcon },
+  { key: "formatted", label: "Formatted", icon: formattedIcon },
+];
+---
+<Frame name={meta.name} blurb={meta.blurb}>
+  <div class="pp" data-pp data-mode="split">
+    <div class="pp-bar" role="group" aria-label="Pretty Print toolbar">
+      <div class="segmented" role="group" aria-label="Mode">
+        {modes.map((m) => (
+          <button type="button" data-set-mode={m.key} aria-pressed={m.key === "split" ? "true" : "false"}>
+            <Fragment set:html={m.icon} />{m.label}
+          </button>
+        ))}
+      </div>
+      <div class="pp-bar-end">
+        <button type="button" class="pp-btn" data-open><Fragment set:html={openIcon} />Open…</button>
+        <button type="button" class="pp-btn" data-copy disabled><Fragment set:html={copyIcon} />Copy</button>
+        <button type="button" class="pp-btn" data-download disabled><Fragment set:html={downloadIcon} />Download</button>
+      </div>
+    </div>
+
+    <div class="pp-sides">
+      <section class="card pp-side pp-side-text" aria-label="Text side">
+        <header class="pp-side-head"><Fragment set:html={textIcon} />Text</header>
+        <textarea
+          class="pp-text"
+          data-text
+          spellcheck="false"
+          autocomplete="off"
+          aria-label="JSON text"
+          placeholder="Paste JSON or Python, or drop a file."
+        ></textarea>
+      </section>
+      <section class="card pp-side pp-side-formatted" aria-label="Formatted side">
+        <header class="pp-side-head">
+          <Fragment set:html={formattedIcon} />Formatted
+          <span class="pp-lang" data-lang title="Detected language" hidden></span>
+          <span class="pp-head-tools" data-fold-tools hidden>
+            <button type="button" class="pp-head-btn" data-fold-all><Fragment set:html={foldAllIcon} />Fold all</button>
+            <button type="button" class="pp-head-btn" data-unfold-all><Fragment set:html={unfoldAllIcon} />Unfold all</button>
+          </span>
+        </header>
+        <div class="pp-out" data-out tabindex="0" aria-label="Formatted text">
+          <div class="pp-code" data-code><div class="pp-lines" data-lines></div></div>
+          <div class="pp-err-slot" data-error hidden></div>
+        </div>
+        <div class="pp-notice-slot" data-notice hidden></div>
+      </section>
+      <div class="pp-drop" aria-hidden="true">
+        <div><Fragment set:html={uploadIcon} /><strong>Drop to open</strong>Replaces the current text</div>
+      </div>
+    </div>
+    <!-- No type filter: .txt, .log and extension-less files open too, and the
+         text alone decides the language. -->
+    <input type="file" data-file hidden />
+  </div>
+  <!-- The saved mode, applied as soon as the markup above is parsed, so a page
+       left in Text or Formatted never paints Split first. The module script
+       below takes over from here. -->
+  <script is:inline define:vars={{ key: MODE_KEY }}>
+    try {
+      var mode = localStorage.getItem(key);
+      if (mode === "text" || mode === "formatted") {
+        document.querySelector("[data-pp]").dataset.mode = mode;
+        document.querySelectorAll("[data-set-mode]").forEach(function (b) {
+          b.setAttribute("aria-pressed", String(b.dataset.setMode === mode));
+        });
+      }
+    } catch (e) {}
+  </script>
+</Frame>
+
+<script>
+  import { format, formatDelay } from "./_format";
+  import { lineWindow, rowAtHeight, renderError, renderLines, renderNotice } from "./_render";
+  import { lineText, type Line } from "./_print";
+  import { copiedText, foldAll, foldable, NO_FOLDS, reconcile, toggle, visibleRows, type Folds, type Row } from "./_fold";
+  import { loadMode, loadText, saveMode, saveText, type Mode } from "./_storage";
+  import { replaceText, wireTextBox } from "../../scripts/textbox";
+  import { wireFileDrop } from "../../scripts/filedrop";
+  import { downloadName } from "./_download";
+  import type { Formatted, Language } from "./_format";
+
+  const box = document.querySelector<HTMLTextAreaElement>("[data-text]")!;
+  const out = document.querySelector<HTMLElement>("[data-out]")!;
+  const code = document.querySelector<HTMLElement>("[data-code]")!;
+  const drawn = document.querySelector<HTMLElement>("[data-lines]")!;
+  const errorSlot = document.querySelector<HTMLElement>("[data-error]")!;
+  const lang = document.querySelector<HTMLElement>("[data-lang]")!;
+  const foldTools = document.querySelector<HTMLElement>("[data-fold-tools]")!;
+  const notice = document.querySelector<HTMLElement>("[data-notice]")!;
+  const root = document.querySelector<HTMLElement>("[data-pp]")!;
+  const modeButtons = [...document.querySelectorAll<HTMLButtonElement>("[data-set-mode]")];
+
+  // The mode lives on the root as data-mode; CSS hides a side and widens the other.
+  function showMode(mode: Mode) {
+    root.dataset.mode = mode;
+    for (const b of modeButtons) b.setAttribute("aria-pressed", String(b.dataset.setMode === mode));
+  }
+  showMode(loadMode());
+  for (const b of modeButtons) {
+    b.addEventListener("click", () => {
+      const mode = b.dataset.setMode as Mode;
+      saveMode(mode);
+      showMode(mode);
+    });
+  }
+
+  // The formatted side draws only the lines in view. Every line is one
+  // fixed-height row (monospace, never wrapped), so the code area is sized
+  // to the whole document, line count × line height, and the drawn lines
+  // sit inside it at their place. It is as wide as the longest line, counted
+  // in characters and widened if a drawn line turns out wider. Folded items
+  // are rows too, so the size and the drawing follow the visible rows.
+  const PAD_TOP = 16;
+  /** The fold gutter (22px) and the gap after it, before a line's text. */
+  const PAD_LEFT = 32;
+  const PAD_RIGHT = 18;
+  let model: Line[] = [];
+  let folds: Folds = NO_FOLDS;
+  /** The formatted side's rows: the model with each folded item collapsed to one row. */
+  let rows: Row[] = [];
+  let lineHeight = 0;
+  let width = 0;
+  let shown = { start: -1, end: -1 };
+
+  /** One line's height as laid out, fractions included (13px × 1.7, snapped). */
+  function measureLineHeight() {
+    const probe = document.createElement("div");
+    probe.className = "pp-line";
+    // Not a space: a row is a flex box, which drops whitespace-only text.
+    probe.textContent = "0";
+    drawn.append(probe);
+    lineHeight = probe.getBoundingClientRect().height || 1;
+    probe.remove();
+  }
+
+  function layout() {
+    measureLineHeight();
+    code.style.height = `${rows.length * lineHeight + 2 * PAD_TOP}px`;
+    code.style.width = `calc(${width}ch + ${PAD_LEFT + PAD_RIGHT}px)`;
+    shown = { start: -1, end: -1 };
+    draw();
+  }
+
+  function draw() {
+    const { start, end } = lineWindow(out.scrollTop - PAD_TOP, out.clientHeight, lineHeight, rows.length);
+    if (start === shown.start && end === shown.end) return;
+    shown = { start, end };
+    drawn.style.top = `${PAD_TOP + start * lineHeight}px`;
+    drawn.innerHTML = renderLines(rows.slice(start, end), start);
+    if (drawn.offsetWidth + PAD_RIGHT > code.clientWidth) code.style.width = `${drawn.offsetWidth + PAD_RIGHT}px`;
+  }
+
+  let drawPending = 0;
+  function scheduleDraw() {
+    if (!drawPending) drawPending = requestAnimationFrame(() => { drawPending = 0; draw(); });
+  }
+  out.addEventListener("scroll", scheduleDraw, { passive: true });
+  new ResizeObserver(() => { if (!code.hidden) layout(); }).observe(out);
+
+  /** Lays out the visible rows of the current output with the current folds. */
+  function showRows() {
+    rows = visibleRows(model, folds);
+    // The rows a selection was kept as are gone.
+    picked = null;
+    width = 0;
+    for (const r of rows) width = Math.max(width, lineText(r).length);
+    layout();
+  }
+
+  // A fold toggle, or a folded item's boxed marker, folds or unfolds its row's
+  // item. A toggle pressed from the keyboard keeps focus once redrawn.
+  drawn.addEventListener("click", (e) => {
+    const target = (e.target as Element).closest(".pp-fold, .marker");
+    const row = target?.closest<HTMLElement>("[data-row]");
+    const fold = row && rows[Number(row.dataset.row)]?.fold;
+    if (!fold) return;
+    const hadFocus = target === document.activeElement;
+    folds = toggle(folds, fold.path);
+    showRows();
+    if (hadFocus) drawn.querySelector<HTMLElement>(`[data-row="${row.dataset.row}"] .pp-fold`)?.focus({ preventScroll: true });
+  });
+
+  // Fold all folds every item below the outermost value; Unfold all opens
+  // everything. Both are hidden while nothing folds.
+  document.querySelector("[data-fold-all]")!.addEventListener("click", () => {
+    folds = foldAll(model);
+    showRows();
+  });
+  document.querySelector("[data-unfold-all]")!.addEventListener("click", () => {
+    folds = NO_FOLDS;
+    showRows();
+  });
+
+  // ⌘C over a selection on the formatted side copies the full text of the
+  // selected rows' lines, folded contents included, never the `…`, however
+  // far the selection runs past the drawn rows. The browser's own selection
+  // can't say: its ends are lost once their rows are redrawn away. So its
+  // ends are kept here as rows, taken from where the pointer pressed and
+  // let go. ⌘A on the formatted side selects every row.
+  type Picked = { anchor: number; focus: number; all?: true };
+  let picked: Picked | null = null;
+  let dragging = false;
+  /** The row under the pointer, its height kept within the formatted side's view. */
+  function rowAtPointer(clientY: number): number {
+    const view = out.getBoundingClientRect();
+    const y = Math.max(view.top, Math.min(view.bottom - 1, clientY));
+    return rowAtHeight(y - code.getBoundingClientRect().top - PAD_TOP, lineHeight, rows.length);
+  }
+  document.addEventListener("mousedown", (e) => {
+    if (e.button !== 0) return;
+    if (!out.contains(e.target as Node) || code.hidden || !rows.length) {
+      picked = null;
+      return;
+    }
+    // A press on a scrollbar moves the view, not the selection.
+    const view = out.getBoundingClientRect();
+    if (e.clientX >= view.left + out.clientLeft + out.clientWidth || e.clientY >= view.top + out.clientTop + out.clientHeight) return;
+    const row = rowAtPointer(e.clientY);
+    picked = e.shiftKey && picked ? { anchor: picked.anchor, focus: row } : { anchor: row, focus: row };
+    dragging = true;
+  });
+  document.addEventListener("mousemove", (e) => {
+    if (dragging && picked) picked.focus = rowAtPointer(e.clientY);
+  });
+  document.addEventListener("mouseup", (e) => {
+    if (dragging && picked) picked.focus = rowAtPointer(e.clientY);
+    dragging = false;
+  });
+  out.addEventListener("keydown", (e) => {
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== "a" || code.hidden || !rows.length) return;
+    e.preventDefault();
+    document.getSelection()?.selectAllChildren(drawn);
+    picked = { anchor: 0, focus: rows.length - 1, all: true };
+  });
+  document.addEventListener("copy", (e) => {
+    if (!picked || !e.clipboardData || code.hidden || document.activeElement === box) return;
+    const sel = document.getSelection();
+    // A click with nothing selected copies nothing, as the browser would.
+    if (picked.anchor === picked.focus && !picked.all && (!sel || sel.isCollapsed)) return;
+    e.preventDefault();
+    e.clipboardData.setData("text/plain", copiedText(model, rows, picked.anchor, picked.focus));
+  });
+
+  // A paste that replaces the whole text (or fills a blank box) is a new
+  // document: it starts unfolded, as a reload does. Open sets this too.
+  let fresh = false;
+  box.addEventListener("beforeinput", (e) => {
+    if (e.inputType === "insertFromPaste" && box.selectionStart === 0 && box.selectionEnd === box.value.length) fresh = true;
+  });
+
+  // Blank text: no label and nothing drawn. Text that doesn't read shows the
+  // error panel in place of the output, never the last output that read; the
+  // label names the language the error judged by.
+  let pending = 0;
+  // What the last render formatted, for Copy and Download.
+  let current: Formatted = { kind: "blank" };
+  let currentText = "";
+  function render() {
+    pending = 0;
+    const f = format(box.value);
+    current = f;
+    currentText = box.value;
+    lang.hidden = f.kind === "blank";
+    if (f.kind !== "blank") lang.textContent = f.language;
+    model = f.kind === "formatted" ? f.lines : [];
+    // Folds follow their item by path; text that doesn't read keeps them.
+    folds = fresh ? NO_FOLDS : reconcile(folds, f);
+    fresh = false;
+    foldTools.hidden = !foldable(model);
+    code.hidden = f.kind === "error";
+    errorSlot.hidden = f.kind !== "error";
+    errorSlot.innerHTML = f.kind === "error" ? renderError(f, box.value) : "";
+    showNotice();
+    showRows();
+  }
+
+  // The size notice names every limit the text is over and goes away by
+  // itself once the text fits. Whether the text was kept is known from the
+  // last save, made on every edit; plain output from the last render.
+  let unsaved = false;
+  function showNotice() {
+    const html = renderNotice({ unsaved, plain: current.kind === "formatted" && current.plain });
+    notice.hidden = !html;
+    if (notice.innerHTML !== html) notice.innerHTML = html;
+  }
+  // Live: every input renders, at most once per frame however fast it comes.
+  // Text over about 1 MB waits for a pause in typing first.
+  let waiting = 0;
+  function scheduleRender() {
+    clearTimeout(waiting);
+    const delay = formatDelay(box.value.length);
+    if (delay) waiting = window.setTimeout(() => { if (!pending) pending = requestAnimationFrame(render); }, delay);
+    else if (!pending) pending = requestAnimationFrame(render);
+  }
+
+  // Copy and Download are disabled while the text side is blank; clearing
+  // the text forgets the opened file's name.
+  const copyButton = document.querySelector<HTMLButtonElement>("[data-copy]")!;
+  const downloadButton = document.querySelector<HTMLButtonElement>("[data-download]")!;
+  /** The name of the file last opened or dropped, until another is opened, the text is cleared, or the page reloads. */
+  let opened: string | null = null;
+  function markBlank() {
+    const blank = !box.value.trim();
+    if (blank) opened = null;
+    copyButton.disabled = downloadButton.disabled = blank;
+  }
+
+  box.value = loadText();
+  wireTextBox(box);
+  box.addEventListener("input", () => {
+    unsaved = !saveText(box.value);
+    showNotice();
+    markBlank();
+    scheduleRender();
+  });
+  markBlank();
+  render();
+  if (!box.value) box.focus();
+
+  /**
+   * What Copy and Download give: the full formatted text, whatever is
+   * folded, or the text exactly as typed while the error panel shows, with
+   * the language that names the download. A render still waiting (a
+   * keystroke this frame, or a pause in typing over about 1 MB) runs now.
+   */
+  function output(): { text: string; language: Language } | null {
+    if (box.value !== currentText) {
+      cancelAnimationFrame(pending);
+      clearTimeout(waiting);
+      render();
+    }
+    if (current.kind === "blank") return null;
+    return { text: current.kind === "formatted" ? current.text : box.value, language: current.language };
+  }
+  copyButton.addEventListener("click", () => {
+    const o = output();
+    if (o) navigator.clipboard.writeText(o.text);
+  });
+  /** Download, from the toolbar or the size notice. */
+  function download() {
+    const o = output();
+    if (!o) return;
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([o.text], { type: "text/plain" }));
+    a.download = downloadName(opened, o.language);
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 0);
+  }
+  downloadButton.addEventListener("click", download);
+  notice.addEventListener("click", (e) => {
+    if ((e.target as Element).closest("[data-notice-download]")) download();
+  });
+
+  // Open… and drop: read the file here, in the browser (nothing is
+  // uploaded), and replace the text as one native edit, so Cmd-Z brings the
+  // previous text back. The opened text is a new document, so it starts
+  // unfolded. Formatted only hides the text side, and a hidden box can't take
+  // the edit: show it for the moment of the edit, then hide it again.
+  async function open(file: File | undefined) {
+    if (!file) return;
+    const text = await file.text();
+    // Set before the edit: a blank file's input clears it again.
+    opened = file.name;
+    if (box.value !== text) fresh = true;
+    const hidden = root.dataset.mode === "formatted";
+    if (hidden) root.dataset.mode = "text";
+    replaceText(box, text);
+    if (hidden) {
+      root.dataset.mode = "formatted";
+      box.blur();
+    }
+    markBlank();
+  }
+  const fileInput = document.querySelector<HTMLInputElement>("[data-file]")!;
+  document.querySelector<HTMLButtonElement>("[data-open]")!.addEventListener("click", () => {
+    fileInput.value = "";
+    fileInput.click();
+  });
+  fileInput.addEventListener("change", () => open(fileInput.files?.[0]));
+
+  // A file dragged anywhere over the battery: one overlay across both sides.
+  wireFileDrop({
+    onDrag: (on) => root.toggleAttribute("data-dragging", on),
+    onDrop: (file) => open(file),
+  });
+</script>
+
+<style>
+  .pp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-height: 36px; margin-bottom: 12px; }
+  .pp-bar-end { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+  /* Open…, Copy and Download: bordered, at the toolbar's right, as Markdown
+     Preview's Open…. */
+  .pp-btn {
+    display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 14px;
+    border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg);
+    font: inherit; font-size: 13px; font-weight: 500; cursor: pointer; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  }
+  .pp-btn:hover:not(:disabled) { background: var(--tint); }
+  .pp-btn:disabled { color: var(--muted); cursor: default; box-shadow: none; opacity: 0.6; }
+  .pp-btn :global(svg) { flex: none; }
+
+  /* The page never scrolls: the column is exactly the window's height,
+     ending 24px under the Local promise, and the two sides take whatever
+     the header, toolbar and promise leave. */
+  :global(main.column) { display: flex; flex-direction: column; height: 100dvh; padding-bottom: 24px; }
+  .pp { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .pp-sides {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;
+    flex: 1; min-height: 0;
+  }
+  .pp-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .pp-side-head {
+    flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+    border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--muted);
+  }
+  .pp-side-head :global(svg) { flex: none; }
+
+  /* The language label: a small read-only pill, never a control. */
+  .pp-lang {
+    display: inline-flex; align-items: center; height: 22px; padding: 0 8px; border: 1px solid var(--line);
+    border-radius: 999px; color: var(--muted); font-size: 11.5px; font-weight: 500; user-select: none;
+  }
+  .pp-lang[hidden] { display: none; }
+
+  /* Fold all / Unfold all: quiet text buttons at the header's right. */
+  .pp-head-tools { display: flex; gap: 2px; margin: 0 -8px 0 auto; }
+  .pp-head-tools[hidden] { display: none; }
+  .pp-head-btn {
+    display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px;
+    background: none; color: var(--muted); font: inherit; font-size: 12px; font-weight: 500; cursor: pointer;
+  }
+  .pp-head-btn:hover { background: var(--tint); color: var(--fg); }
+  .pp-head-btn :global(svg) { flex: none; }
+
+  /* The text side: a borderless mono textarea, as Markdown Preview's. */
+  .pp-text {
+    flex: 1; display: block; width: 100%; min-height: 0; margin: 0; padding: 16px 18px;
+    border: 0; resize: none; background: transparent; color: var(--fg);
+    font: 13px/1.7 var(--font-mono); tab-size: 4;
+  }
+  .pp-text::placeholder { color: var(--muted); opacity: 1; }
+  .pp-text:focus-visible { outline-offset: -2px; border-radius: 0 0 11px 11px; }
+
+  /* The formatted side: one line per row, never wrapped, scrolling both ways. */
+  .pp-out { flex: 1; min-height: 0; overflow: auto; }
+  .pp-out:focus-visible { outline-offset: -2px; border-radius: 0 0 11px 11px; }
+  /* The code area is sized by the page script to the whole document; only
+     the lines in view are drawn, placed inside it. */
+  .pp-code {
+    position: relative; box-sizing: border-box; min-width: 100%; min-height: 100%;
+    font: 13px/1.7 var(--font-mono); white-space: pre; color: var(--fg);
+  }
+  .pp-lines { position: absolute; top: 16px; left: 0; width: max-content; }
+
+  /* The fold gutter: a 22px column down the whole side, set off by
+     a 1px line, holding only the fold toggles. */
+  .pp-code::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 22px; border-right: 1px solid var(--line); }
+
+  .pp-code[hidden], .pp-err-slot[hidden] { display: none; }
+
+  /* The size notice: a 34px footer pinned under
+     the formatted side's output, muted on the tint, Download at its end. */
+  .pp-notice-slot { flex: none; }
+  .pp-notice-slot[hidden] { display: none; }
+  .pp-notice-slot :global(.pp-notice) {
+    display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 0 8px 0 14px;
+    border-top: 1px solid var(--line); background: var(--tint); color: var(--muted); font-size: 12px;
+  }
+  .pp-notice-slot :global(svg) { flex: none; }
+  .pp-notice-slot :global(.dot) { opacity: 0.6; }
+  .pp-notice-slot :global(.pp-notice-text) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pp-notice-slot :global(button) {
+    flex: none; display: inline-flex; align-items: center; gap: 5px; height: 24px; padding: 0 8px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--fg);
+    font: inherit; font-weight: 500; cursor: pointer;
+  }
+  .pp-notice-slot :global(button:hover) { background: var(--tint); }
+
+  /* A file dragged over the battery: a dashed overlay across both sides. */
+  .pp-drop {
+    display: none; position: absolute; inset: 0; z-index: 2; place-items: center; padding: 16px;
+    border: 2px dashed var(--muted); border-radius: 12px; text-align: center;
+    background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--muted); font-size: 13px;
+    pointer-events: none;
+  }
+  .pp-drop strong { display: block; margin: 8px 0 2px; color: var(--fg); font-size: 15px; font-weight: 600; }
+  .pp[data-dragging] .pp-drop { display: grid; }
+
+  /* One side hidden: the other takes the full width. */
+  .pp:not([data-mode="split"]) .pp-sides { grid-template-columns: minmax(0, 1fr); }
+  .pp[data-mode="text"] .pp-side-formatted,
+  .pp[data-mode="formatted"] .pp-side-text { display: none; }
+
+  /* Phone: split stacks the text side above the formatted side, each half
+     of the same height, each scrolling on its own. */
+  @media (max-width: 639px) {
+    .pp[data-mode="split"] .pp-sides { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  }
+</style>
+
+<style is:global>
+  /* ---- Token colours, read from the --hl-* pairs in the global
+     stylesheet. ------------------------------------------------------------ */
+  .pp-code .key, .pp-code .arg { color: var(--hl-tag); font-weight: 600; }
+  .pp-code .str { color: var(--hl-string); }
+  .pp-code .num { color: var(--hl-constant); }
+  .pp-code .const { color: var(--hl-constant); font-style: italic; }
+  .pp-code .comment { color: var(--hl-comment); font-style: italic; }
+  .pp-code .call { color: var(--hl-entity); }
+  .pp-code .repr { color: var(--hl-repr); }
+  .pp-code .punct { color: var(--muted); }
+
+  /* ---- Fold gutter and folded items: chevrons muted while open and full
+     colour once folded; the folded item's {…} a small clickable box, then its muted count. -------- */
+  .pp-line { display: flex; }
+  .pp-gutter {
+    flex: none; width: 22px; margin-right: 10px; display: inline-flex; align-items: center; justify-content: center;
+    user-select: none;
+  }
+  .pp-fold {
+    display: inline-grid; place-items: center; width: 16px; height: 16px; padding: 0; border: 0; border-radius: 4px;
+    background: none; color: var(--pp-fold); cursor: pointer;
+  }
+  .pp-fold:hover { background: var(--tint); color: var(--fg); }
+  .is-folded .pp-fold { color: var(--fg); }
+  .pp-code .marker {
+    padding: 0 3px; margin: 0 1px; border: 1px solid var(--line); border-radius: 4px;
+    background: var(--tint); color: var(--muted); cursor: pointer;
+  }
+  .pp-code .count { margin-left: 4px; color: var(--muted); font-family: var(--font-sans); font-size: 12px; }
+
+  /* ---- Error panel: a card, dark in both themes, with the bad line on a
+     red band. Its reds are exempt from the zinc-only rule, as the diagram error's are. ----------- */
+  .pp-err {
+    margin: 16px; border: 1px solid var(--pp-err-border); border-radius: 10px; overflow: hidden;
+    background: var(--pp-err-bg); color: #e4e4e7; font: 12.5px/1.7 var(--font-mono);
+  }
+  .pp-err-head {
+    display: flex; flex-wrap: wrap; align-items: center; gap: 0 8px; padding: 8px 14px;
+    border-bottom: 1px solid var(--pp-err-rule); color: #f87171;
+  }
+  .pp-err-head svg { flex: none; }
+  .pp-err-where { margin-left: auto; color: #a1a1aa; white-space: nowrap; }
+  .pp-err-src { margin: 0; padding: 10px 0; overflow-x: auto; white-space: pre; tab-size: 4; font: inherit; }
+  .pp-err-ln { display: block; width: max-content; min-width: 100%; padding: 0 14px; box-sizing: border-box; }
+  .pp-err-ln .n { margin-right: 14px; color: #71717a; }
+  .pp-err-ln.bad { background: rgba(248, 113, 113, 0.16); color: #fafafa; box-shadow: inset 3px 0 #f87171; }
+  .pp-err-ln.bad .n { color: #f87171; }
+  .pp-err-ln.caret { color: #f87171; }
+</style>

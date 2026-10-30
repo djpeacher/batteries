@@ -7,6 +7,7 @@ Live at <https://batteries.djpeacher.com/>.
 ## Batteries
 
 - **Markdown Preview**: type markdown and see it rendered live, with code highlighting, Mermaid diagrams and math.
+- **Pretty Print**: paste JSON or a Python dict and see it laid out, coloured and foldable.
 - **Text Diff**: supply two texts and see the differences between them highlighted.
 
 ## Development
