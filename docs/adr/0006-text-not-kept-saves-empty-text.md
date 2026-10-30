@@ -1,0 +1,3 @@
+# Text not kept saves empty text, so a reload is blank
+
+When Pretty Print's text is over `SAVE_LIMIT` (1,000,000 characters) or the browser refuses to save it, the size notice says "Not kept after reload", and a reload must show a blank text side, not stale older text and not the first-visit sample. The first-visit sample shows only when no saved text exists, so deleting the saved text would bring the sample back. Instead, `src/pages/pretty-print/_storage.ts` overwrites it with empty text, and removes it only if even that write fails. Deleting the saved text looks like the obvious choice; this deliberately differs so that a reload after a too-big paste is blank.
