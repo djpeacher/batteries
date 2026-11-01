@@ -7,7 +7,9 @@
     "build": "astro build",
     "preview": "astro preview",
     "check": "astro check",
-    "test": "vitest run"
+    "test": "vitest run",
+    "prepare": "git config core.hooksPath .githooks",
+    "serve:dist": "astro preview stop; astro preview --background --port 4500"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

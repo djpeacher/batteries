@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs the same checks as CI before anything reaches main.
+set -e
+npm run check
+npm test
