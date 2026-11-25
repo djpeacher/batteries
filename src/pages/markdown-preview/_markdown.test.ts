@@ -95,6 +95,92 @@ describe("raw HTML", () => {
   });
 });
 
+describe("angle brackets that name no HTML element", () => {
+  it("show as typed, whatever the placeholder looks like", () => {
+    const line = "<name> (<what it is>): <local path>. Clone from <remote> if missing.";
+    const root = dom(`Then:\n\n  ${line}\n\nAfter\n`);
+    expect([...root.querySelectorAll("p")].map((p) => p.textContent!.trim())).toEqual(["Then:", line, "After"]);
+  });
+
+  it("keep their case, closing tags and surrounding markdown", () => {
+    const root = dom("## **List**<T> and </Foo>\n\n- <my-Thing/> *here*\n");
+    expect(root.querySelector("h2")!.textContent).toBe("List<T> and </Foo>");
+    expect(root.querySelector("li")!.textContent).toBe("<my-Thing/> here");
+    expect(root.querySelector("li em")).not.toBeNull();
+  });
+
+  it("alone on a line are a paragraph, with the markdown after them rendered", () => {
+    const root = dom("<name>\n**bold**\n\n<path>\n**more**\n");
+    expect([...root.querySelectorAll("p")].map((p) => p.textContent)).toEqual(["<name>\nbold", "<path>\nmore"]);
+    expect(root.querySelectorAll("strong")).toHaveLength(2);
+  });
+
+  it("show inside an HTML block", () => {
+    expect(dom("<div>\nRun <name> now\n</div>\n").querySelector("div")!.textContent).toContain("Run <name> now");
+  });
+
+  it("show for SVG names outside an SVG, which still draws", () => {
+    expect(dom("Open <path> and <text>.").textContent).toContain("Open <path> and <text>.");
+    const block = dom('<svg viewBox="0 0 9 9">\n<path d="M0 0h9"/>\n\n<circle r="3"/>\n</svg>\n\nThen <path>.\n');
+    expect(block.querySelector("svg > path")?.getAttribute("d")).toBe("M0 0h9");
+    expect(block.querySelector("svg > circle")).not.toBeNull();
+    expect(block.querySelector("p")!.textContent).toBe("Then <path>.");
+    expect(dom('Inline <svg><path d="M0 0"/></svg> art').querySelector("p svg > path")).not.toBeNull();
+  });
+
+  it("stay put inside attributes, comments and code", () => {
+    expect(dom('<img alt="a <name> b" src="https://example.com/a.png">').querySelector("img")?.alt).toBe("a <name> b");
+    expect(dom("a <!-- <name> --> b").querySelector("p")!.textContent).toBe("a  b");
+    expect(dom("`<name>`").querySelector("code")!.textContent).toBe("<name>");
+  });
+
+  it("show after an <svg> that is never closed, or is only text", () => {
+    expect(dom("Use an <svg> tag.\n\nThen <name> and <path>.\n").textContent).toContain("Use an <svg> tag.");
+    for (const before of [
+      "Use an <svg> tag.",
+      "<svg>",
+      "<pre>\n<svg>\n</pre>",
+      "<div>\n<svg>\n</div>",
+      "<style>\n/* <svg> */\n</style>",
+      "<script>\nvar s = '<svg>';\n</script>",
+      "<textarea>\n<svg>\n</textarea>",
+      "<!-- <svg> -->",
+    ]) {
+      const root = dom(`${before}\n\nThen <name> and <path>.\n\nLater <svg><path d="M0 0"/></svg>\n`);
+      expect(root.textContent, before).toContain("Then <name> and <path>.");
+      expect(root.querySelector("svg > path"), before).not.toBeNull();
+    }
+  });
+
+  it("show inside an HTML block even when they could never be a tag", () => {
+    const line = "<name, x> <a/b> <user@host> <what's it> <local/path> <naïve>";
+    expect(dom(`<div>\n${line}\n</div>\n`).textContent).toContain(line);
+  });
+
+  it("swallow nothing when a comment or a raw-text element is never closed", () => {
+    expect(dom("Set <title> and <name>.\n\nAfter\n").textContent).toContain("Set <title> and <name>.");
+    expect(dom("<div>\n<!-- open <name>\n</div>\n\nAfter\n").textContent).toContain("<!-- open <name>");
+  });
+
+  it("never carry a line tag into the text", () => {
+    expect(dom("<svg>\n\nA\n\n<path>\n").textContent).not.toContain("data-line");
+  });
+
+  it("stay quick on hostile input", () => {
+    for (const bad of ["<a ", '<a "', '<a b="', "<name ", "<!--", "<title>", "<svg>", "<script "]) {
+      const started = performance.now();
+      renderMarkdown("<div>\n" + bad.repeat(20000));
+      expect(performance.now() - started, bad).toBeLessThan(1500);
+    }
+  }, 30000);
+
+  it("give unsafe markup no way through", () => {
+    const root = dom('<name onclick="alert(1)"><img src=x onerror="alert(1)"><script>alert(2)</script></name>\n');
+    expect(root.querySelector("script, [onerror], [onclick]")).toBeNull();
+    expect(root.textContent).not.toContain("alert(2)");
+  });
+});
+
 describe("links", () => {
   it("open in a new tab without handing over the page", () => {
     const root = dom('[GFM](https://github.github.com/gfm/) and <a href="https://example.com" target="_self">raw</a>\n');

@@ -1,7 +1,8 @@
 /**
  * Markdown Preview's rendering: markdown text in, sanitized HTML for the
  * rendered side out. marked (GitHub-flavored) parses it and DOMPurify strips
- * anything unsafe from the result, raw HTML included.
+ * anything unsafe from the result, raw HTML included. Angle brackets that name
+ * no HTML element show as typed.
  *
  * Needs a DOM (the browser, or jsdom in tests) for DOMPurify.
  */
@@ -9,6 +10,7 @@ import DOMPurify from "dompurify";
 import hljs from "highlight.js/lib/common";
 import { Marked } from "marked";
 import { escapeHtml } from "../../lib/html";
+import { escapeTextBrackets, opensHtmlBlock } from "./_brackets";
 
 /*
  * Diagrams and math leave the pipeline as empty placeholders that carry their
@@ -58,6 +60,10 @@ const marked = new Marked(
         renderer: (t) => (t.display ? math(t.text, true).trim() : math(t.text, false)),
       },
     ],
+    tokenizer: {
+      // false hands over to marked's own tokenizer; undefined means no HTML block here.
+      html: (src) => (/^ {0,3}</.test(src) && !opensHtmlBlock(src) ? undefined : false),
+    },
     renderer: {
       // A fence is highlighted only when it names a language highlight.js
       // knows (its common set); anything else stays plain, never guessed.
@@ -82,14 +88,19 @@ const marked = new Marked(
  * link definition) goes untagged.
  */
 function tagLines(markdown: string): string {
+  const tokens = marked.lexer(markdown);
+  // Brackets are judged over the whole document (an <svg> can span blocks), and
+  // before tagging, so a tag that turns out to be text never gets a data-line.
+  const seam = `seam${renderKey}seam`;
+  const blocks = escapeTextBrackets(tokens.map((token) => marked.parser([token])).join(seam)).split(seam);
   let line = 1;
-  let html = "";
-  for (const token of marked.lexer(markdown)) {
-    const out = marked.parser([token]);
-    html += out.replace(/^(\s*<[a-zA-Z][\w-]*)/, `$1 data-line="${line}"`);
-    line += token.raw.split("\n").length - 1;
-  }
-  return html;
+  return tokens
+    .map((token, i) => {
+      const html = blocks[i].replace(/^(\s*<[a-zA-Z][\w-]*)/, `$1 data-line="${line}"`);
+      line += token.raw.split("\n").length - 1;
+      return html;
+    })
+    .join("");
 }
 
 /**
