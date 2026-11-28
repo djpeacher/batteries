@@ -1,8 +1,8 @@
 /**
  * File Tree's drawer: the one entry point from the text side's outline to
  * what the tree side shows. It returns the tree side's text (what Copy gives)
- * and, per drawn line, the tree lines before the name, so the page can mute
- * them.
+ * and, per drawn line, the tree lines, the name, the padding and the comment
+ * apart, so the page can mute the tree lines and grey the comment.
  *
  * Reading the outline:
  * - Blank and whitespace-only lines are dropped; trailing whitespace is trimmed.
@@ -15,6 +15,15 @@
  *   no shallower line comes before is top-level.
  * - Names are drawn exactly as typed: no `/` added, a leading `- ` kept,
  *   typed order and repeated names kept, no root line added.
+ *
+ * Comments:
+ * - A run of spaces or tabs after the name, then the first `#`, starts a
+ *   comment; everything from that `#` on is comment text as typed. A `#`
+ *   with no space before it, or with only indentation before it, is part of
+ *   the name.
+ * - Every comment's `#` sits in one column for the whole tree, 2 columns past
+ *   the longest line that has a comment; wide characters (CJK, emoji) count
+ *   as 2. Lines without a comment end at the name, with no padding.
  */
 
 /** One drawn line of the tree side. */
@@ -23,6 +32,10 @@ export type TreeLine = {
   prefix: string;
   /** The name exactly as typed, trailing whitespace trimmed. */
   name: string;
+  /** The spaces from the end of the name to the comment column; empty without a comment. */
+  pad: string;
+  /** The comment from its `#`, trailing whitespace trimmed; empty without one. */
+  comment: string;
 };
 
 export type Drawing = {
@@ -34,7 +47,12 @@ export type Drawing = {
 const TAB = 4;
 
 /** A line of the outline with a name, placed in the tree. */
-type Node = { name: string; depth: number; parent: number };
+type Node = { name: string; comment: string; depth: number; parent: number };
+
+/** Spaces or tabs, then a `#`: where a comment starts. */
+const COMMENT = /[ \t]+#/;
+/** The gap between the longest commented line and the comment column. */
+const GAP = 2;
 
 export function draw(outline: string): Drawing {
   const nodes = place(outline);
@@ -43,13 +61,23 @@ export function draw(outline: string): Drawing {
   nodes.forEach((n, i) => lastChild.set(n.parent, i));
   const isLast = (i: number) => lastChild.get(nodes[i].parent) === i;
 
-  const lines = nodes.map((n, i): TreeLine => {
-    if (n.depth === 0) return { prefix: "", name: n.name };
+  const prefixes = nodes.map((n, i) => {
+    if (n.depth === 0) return "";
     let prefix = isLast(i) ? "└── " : "├── ";
     for (let a = n.parent; nodes[a].depth > 0; a = nodes[a].parent) prefix = (isLast(a) ? "    " : "│   ") + prefix;
-    return { prefix, name: n.name };
+    return prefix;
   });
-  return { text: lines.map((l) => l.prefix + l.name).join("\n"), lines };
+  let column = 0;
+  nodes.forEach((n, i) => {
+    if (n.comment) column = Math.max(column, width(prefixes[i] + n.name) + GAP);
+  });
+  const lines = nodes.map((n, i): TreeLine => ({
+    prefix: prefixes[i],
+    name: n.name,
+    pad: n.comment ? " ".repeat(column - width(prefixes[i] + n.name)) : "",
+    comment: n.comment,
+  }));
+  return { text: lines.map((l) => l.prefix + l.name + l.pad + l.comment).join("\n"), lines };
 }
 
 /** Every line with a name, with its depth and parent, by the reading rules above. */
@@ -65,7 +93,11 @@ function place(outline: string): Node[] {
     while (path.length && path.at(-1)!.indent > indent) path.pop();
     if (path.length && path.at(-1)!.indent === indent) path.pop();
     const depth = path.length;
-    nodes.push({ name: line.slice(lead.length), depth, parent: depth ? path.at(-1)!.node : -1 });
+    const content = line.slice(lead.length);
+    const m = COMMENT.exec(content);
+    const name = m ? content.slice(0, m.index) : content;
+    const comment = m ? content.slice(m.index + m[0].length - 1) : "";
+    nodes.push({ name, comment, depth, parent: depth ? path.at(-1)!.node : -1 });
     path.push({ indent, node: nodes.length - 1 });
   }
   return nodes;
@@ -76,4 +108,22 @@ function columns(lead: string): number {
   let col = 0;
   for (const c of lead) col = c === "\t" ? (Math.floor(col / TAB) + 1) * TAB : col + 1;
   return col;
+}
+
+/** Wide on screen: East Asian wide and fullwidth blocks (CJK, Hangul, kana, fullwidth forms). */
+const WIDE = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
+/** Drawn as an emoji: emoji presentation by default, or asked for with VS16. */
+const EMOJI = /\p{Emoji_Presentation}|\ufe0f/u;
+/** Takes no column of its own: combining marks, zero-width and format characters. */
+const ZERO = /^[\p{Mn}\p{Me}\p{Cf}]+$/u;
+const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+
+/** How many columns a string takes in a monospace font: wide characters and emoji count as 2. */
+export function width(s: string): number {
+  let w = 0;
+  for (const { segment } of graphemes.segment(s)) {
+    if (EMOJI.test(segment) || WIDE.test(segment)) w += 2;
+    else if (!ZERO.test(segment)) w += 1;
+  }
+  return w;
 }

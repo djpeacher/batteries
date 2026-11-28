@@ -89,12 +89,124 @@ describe("draw: names", () => {
 });
 
 describe("draw: lines for the page", () => {
-  it("gives each line's tree lines apart from its name", () => {
-    expect(draw(t("a", "  b", "    c", "  d")).lines).toEqual([
-      { prefix: "", name: "a" },
-      { prefix: "├── ", name: "b" },
-      { prefix: "│   └── ", name: "c" },
-      { prefix: "└── ", name: "d" },
+  it("gives each line's tree lines, name, padding and comment apart", () => {
+    expect(draw(t("a", "  b # note", "    c", "  d")).lines).toEqual([
+      { prefix: "", name: "a", pad: "", comment: "" },
+      { prefix: "├── ", name: "b", pad: "  ", comment: "# note" },
+      { prefix: "│   └── ", name: "c", pad: "", comment: "" },
+      { prefix: "└── ", name: "d", pad: "", comment: "" },
     ]);
+  });
+});
+
+describe("draw: comments", () => {
+  it("lines up every comment's # 2 spaces past the longest commented line (the spec's comment example)", () => {
+    const outline = t(
+      "src",
+      "  # helpers",
+      "  app.js    # entry",
+      "  文档.md\t#",
+      "  a-really-long-generated.map",
+      "  util.js # see #12 #todo",
+      "issue #42.md",
+    );
+    expect(tree(outline)).toBe(
+      t(
+        "src",
+        "├── # helpers",
+        "├── app.js   # entry",
+        "├── 文档.md  #",
+        "├── a-really-long-generated.map",
+        "└── util.js  # see #12 #todo",
+        "issue        #42.md",
+      ),
+    );
+  });
+});
+
+describe("draw: what starts a comment", () => {
+  it.each([
+    ["a space then # starts a comment", "a.js # entry", "a.js  # entry"],
+    ["a tab then # starts a comment", "a.js\t# entry", "a.js  # entry"],
+    ["later #s and spaces stay comment text as typed", "a.js # see #12   #todo", "a.js  # see #12   #todo"],
+    ["trims trailing whitespace from a comment", "a.js #  note \t ", "a.js  #  note"],
+    ["keeps a lone # and lines it up", t("a.js #", "bb.js # b"), t("a.js   #", "bb.js  # b")],
+    ["a # with no space before it is part of the name", "c#-notes", "c#-notes"],
+    ["a # with no space before it stays in the name when a comment follows", "c#-notes # docs", "c#-notes  # docs"],
+    ["only indentation before # draws a name", t("src", "  # helpers"), t("src", "└── # helpers")],
+    ["only indentation before # at top level draws a name", "# notes", "# notes"],
+    ["a name starting with # can still have a comment", t("src", "  # helpers # tools"), t("src", "└── # helpers  # tools")],
+    ["a space then # inside a name starts a comment", "issue #42.md", "issue  #42.md"],
+  ])("%s", (_, outline, expected) => {
+    expect(tree(outline)).toBe(expected);
+  });
+});
+
+describe("draw: the comment column", () => {
+  it.each([
+    [
+      "one column for the whole tree, across levels and top-level trees",
+      t("a # one", "  bbbbbb # two", "c", "  d # three"),
+      t("a           # one", "└── bbbbbb  # two", "c", "└── d       # three"),
+    ],
+    ["the column replaces any typed gap", t("a        # one", "bb # two"), t("a   # one", "bb  # two")],
+    [
+      "a line without a comment never pushes the column",
+      t("a # one", "a-very-long-uncommented-name", "bb # two"),
+      t("a   # one", "a-very-long-uncommented-name", "bb  # two"),
+    ],
+    [
+      "a long commented name pushes the column with no limit",
+      t("a # one", "x".repeat(200) + " # far"),
+      t("a" + " ".repeat(201) + "# one", "x".repeat(200) + "  # far"),
+    ],
+  ])("%s", (_, outline, expected) => {
+    expect(tree(outline)).toBe(expected);
+  });
+
+  it("lines without a comment end at the name, so the tree side has no trailing spaces", () => {
+    const text = tree(t("root # top", "  a-long-name-without-a-comment", "  b # note", "  c"));
+    for (const line of text.split("\n")) expect(line).toBe(line.trimEnd());
+    expect(text).toBe(t("root   # top", "├── a-long-name-without-a-comment", "├── b  # note", "└── c"));
+  });
+});
+
+describe("draw: wide characters", () => {
+  it.each([
+    ["CJK counts as 2 columns", t("文档.md # docs", "abcdefg # x"), t("文档.md  # docs", "abcdefg  # x")],
+    ["an emoji counts as 2 columns", t("🚀.md # go", "abcd # x"), t("🚀.md  # go", "abcd   # x")],
+    ["an emoji with VS16 counts as 2 columns", t("❤️ # x", "ab # y"), t("❤️  # x", "ab  # y")],
+    ["a joined emoji counts as 2 columns", t("👩‍💻 # x", "ab # y"), t("👩‍💻  # x", "ab  # y")],
+    ["a combining accent takes no column", t("cafe\u0301 # x", "abcd # y"), t("cafe\u0301  # x", "abcd  # y")],
+    ["fullwidth letters count as 2 columns", t("ＡＢ # x", "abcd # y"), t("ＡＢ  # x", "abcd  # y")],
+  ])("%s", (_, outline, expected) => {
+    expect(tree(outline)).toBe(expected);
+  });
+});
+
+describe("draw: the first-visit sample", () => {
+  it("draws the sample as the spec shows it", () => {
+    const outline = t(
+      "my-app/  # edit or clear this sample",
+      "  src/",
+      "    index.js  # comments line up",
+      "    utils/",
+      "      format.js",
+      "  tests/",
+      "    index.test.js",
+      "  README.md  # Tab and Shift-Tab",
+    );
+    expect(tree(outline)).toBe(
+      t(
+        "my-app/           # edit or clear this sample",
+        "├── src/",
+        "│   ├── index.js  # comments line up",
+        "│   └── utils/",
+        "│       └── format.js",
+        "├── tests/",
+        "│   └── index.test.js",
+        "└── README.md     # Tab and Shift-Tab",
+      ),
+    );
   });
 });
