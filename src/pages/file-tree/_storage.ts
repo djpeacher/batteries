@@ -3,8 +3,13 @@
  * empty one; no key at all is a first visit, which shows the sample. The
  * outline is saved on every edit, so the sample never returns once it has
  * been edited or cleared.
+ *
+ * An outline over SAVE_LIMIT is not saved, nor is one the browser refuses to
+ * save (storage full or unavailable). Then the older saved outline is
+ * overwritten with empty text, so a reload is blank rather than an outline
+ * already replaced (ADR-0006).
  */
-import { load, save } from "../../scripts/storage";
+import { load, remove, save, trySave } from "../../scripts/storage";
 
 const TEXT_KEY = "batteries:file-tree:text";
 
@@ -23,9 +28,18 @@ export function loadText(): string {
   return load(TEXT_KEY) ?? SAMPLE;
 }
 
-/** Saves the outline, on every edit. */
-export function saveText(text: string) {
-  save(TEXT_KEY, text);
+/**
+ * File Tree's save limit, in characters (about 1 MB), as Pretty Print's, so a
+ * huge paste never fills the storage the other batteries save to.
+ */
+export const SAVE_LIMIT = 1_000_000;
+
+/** Saves the outline, on every edit, and reports whether it will survive a reload. */
+export function saveText(text: string): boolean {
+  if (text.length <= SAVE_LIMIT && trySave(TEXT_KEY, text)) return true;
+  // An empty saved outline reloads blank; if even that won't save, no key at all.
+  if (!trySave(TEXT_KEY, "")) remove(TEXT_KEY);
+  return false;
 }
 
 /** Also read by the page's inline script, which applies the saved mode before first paint. */
