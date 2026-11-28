@@ -1,0 +1,113 @@
+---
+/**
+ * File Tree: the text side and the tree side, side by side. What is typed
+ * on the text side is drawn on the tree side with the `tree` command's
+ * lines, live on every input. The tree side can't be typed into; with
+ * nothing to draw it shows the hint line.
+ */
+import Frame from "../../layouts/Frame.astro";
+import * as meta from "./_meta";
+import { icon } from "../../lib/html";
+const textIcon = icon(`<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>`);
+const treeIcon = icon(`<path d="M20 10a1 1 0 0 0 1-1V6a1 1 0 0 0-1-1h-2.5a1 1 0 0 1-.8-.4l-.9-1.2A1 1 0 0 0 15 3h-2a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M20 21a1 1 0 0 0 1-1v-3a1 1 0 0 0-1-1h-2.9a1 1 0 0 1-.88-.55l-.42-.85a1 1 0 0 0-.92-.6H13a1 1 0 0 0-1 1v5a1 1 0 0 0 1 1Z"/><path d="M3 5a2 2 0 0 0 2 2h3"/><path d="M3 3v13a2 2 0 0 0 2 2h3"/>`);
+---
+<Frame name={meta.name} blurb={meta.blurb}>
+  <div class="ft" data-ft>
+    <div class="ft-sides">
+      <section class="card ft-side ft-side-text" aria-label="Text side">
+        <header class="ft-side-head"><Fragment set:html={textIcon} />Text</header>
+        <textarea
+          class="ft-text"
+          data-text
+          spellcheck="false"
+          autocomplete="off"
+          aria-label="Outline"
+          placeholder="Type an indented outline."
+        ></textarea>
+      </section>
+      <section class="card ft-side ft-side-tree" aria-label="Tree side">
+        <header class="ft-side-head"><Fragment set:html={treeIcon} />Tree</header>
+        <div class="ft-out" tabindex="0" aria-label="File tree">
+          <div class="ft-drawing" data-drawing hidden></div>
+          <p class="ft-hint" data-hint>Type an outline on the text side to draw it here.</p>
+        </div>
+      </section>
+    </div>
+  </div>
+</Frame>
+
+<script>
+  import { draw } from "./_draw";
+  import { escapeHtml } from "../../lib/html";
+  import { wireTextBox } from "../../scripts/textbox";
+
+  const box = document.querySelector<HTMLTextAreaElement>("[data-text]")!;
+  const drawing = document.querySelector<HTMLElement>("[data-drawing]")!;
+  const hint = document.querySelector<HTMLElement>("[data-hint]")!;
+
+  // Each drawn line is one row: its muted tree lines, then its name.
+  function render() {
+    pending = 0;
+    const { lines } = draw(box.value);
+    drawing.hidden = !lines.length;
+    hint.hidden = !!lines.length;
+    drawing.innerHTML = lines
+      .map((l) => `<div class="ft-line"><span class="ft-lines">${escapeHtml(l.prefix)}</span>${escapeHtml(l.name)}</div>`)
+      .join("");
+  }
+
+  // Live: every input redraws, at most once per frame however fast it comes.
+  let pending = 0;
+  box.addEventListener("input", () => {
+    if (!pending) pending = requestAnimationFrame(render);
+  });
+
+  wireTextBox(box);
+  render();
+  if (!box.value) box.focus();
+</script>
+
+<style>
+  /* The page never scrolls: the column is exactly the window's height,
+     ending 24px under the Local promise, and the two sides take whatever
+     the header and promise leave. */
+  :global(main.column) { display: flex; flex-direction: column; height: 100dvh; padding-bottom: 24px; }
+  .ft { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .ft-sides {
+    position: relative; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px;
+    flex: 1; min-height: 0;
+  }
+  .ft-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+  .ft-side-head {
+    flex: none; display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 16px;
+    border-bottom: 1px solid var(--line); font-size: 12px; font-weight: 500; color: var(--muted);
+  }
+  .ft-side-head :global(svg) { flex: none; }
+
+  /* The text side: a borderless mono textarea, as Pretty Print's. */
+  .ft-text {
+    flex: 1; display: block; width: 100%; min-height: 0; margin: 0; padding: 16px 18px;
+    border: 0; resize: none; background: transparent; color: var(--fg);
+    font: 13px/1.7 var(--font-mono); tab-size: 4;
+  }
+  .ft-text::placeholder { color: var(--muted); opacity: 1; }
+  .ft-text:focus-visible, .ft-out:focus-visible { outline-offset: -2px; border-radius: 0 0 11px 11px; }
+
+  /* The tree side: one line per row, never wrapped, scrolling both ways. */
+  .ft-out { flex: 1; min-height: 0; overflow: auto; }
+  .ft-drawing {
+    width: max-content; min-width: 100%; box-sizing: border-box; padding: 16px 18px;
+    font: 13px/1.7 var(--font-mono); white-space: pre; color: var(--fg);
+  }
+  .ft-drawing :global(.ft-lines) { color: var(--muted); opacity: 0.7; }
+  .ft-drawing[hidden], .ft-hint[hidden] { display: none; }
+
+  /* The hint line: where the first drawn line will appear, so nothing jumps. */
+  .ft-hint { margin: 0; padding: 16px 18px; color: var(--muted); font-size: 13px; line-height: 1.7; }
+
+  /* Phone: the text side above the tree side, each half of the same height,
+     each scrolling on its own. */
+  @media (max-width: 639px) {
+    .ft-sides { grid-template-columns: minmax(0, 1fr); grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); }
+  }
+</style>
