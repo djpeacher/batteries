@@ -82,6 +82,7 @@ const modes = [
   import { formatDelay } from "../pretty-print/_format";
   import { escapeHtml, icon } from "../../lib/html";
   import { wireTextBox } from "../../scripts/textbox";
+  import { indentEdit } from "./_indent";
   import { loadMode, loadText, saveMode, saveText, type Mode } from "./_storage";
 
   const box = document.querySelector<HTMLTextAreaElement>("[data-text]")!;
@@ -175,7 +176,8 @@ const modes = [
   });
 
   box.value = loadText();
-  wireTextBox(box);
+  // Tab and Shift-Tab move whole lines a step; Enter carries the indentation.
+  wireTextBox(box, indentEdit);
   render();
   if (!box.value) box.focus();
 </script>

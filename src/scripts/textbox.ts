@@ -1,8 +1,9 @@
 /**
- * Text-box behaviour shared by both batteries' native textareas (Text Diff's
- * old side and new side, Markdown Preview's text side).
+ * Text-box behaviour shared by the batteries' native textareas (Text Diff's
+ * old side and new side, Markdown Preview's and File Tree's text sides).
  *
- * - Tab inserts a tab character (the box shows it at tab size 4 by CSS).
+ * - Tab inserts a tab character (the box shows it at tab size 4 by CSS),
+ *   unless the box hands its keys to an indent editor (File Tree).
  *   Escape arms the next Tab to move focus out normally; any other key
  *   disarms it, so nobody is trapped in a box.
  * - Replacing a box's whole text (Drop, Open, Swap) goes through the
@@ -11,21 +12,57 @@
  *   still the only way to edit a textarea onto its native undo stack.
  */
 
-/** Wire Tab and Escape-then-Tab on a text box. */
-export function wireTextBox(box: HTMLTextAreaElement) {
+/** A text box's text and selection after a key, or null when the key changes nothing. */
+export type KeyEdit = (
+  text: string,
+  start: number,
+  end: number,
+  key: "Tab" | "Shift-Tab" | "Enter",
+) => { text: string; start: number; end: number } | null;
+
+/**
+ * Wire Tab and Escape-then-Tab on a text box. With `keys`, Tab, Shift-Tab
+ * and Enter go to it instead (File Tree's text side), and each change it
+ * returns is written as one native edit: one Cmd-Z step. A key that changes
+ * nothing writes nothing, and Tab or Shift-Tab still stays in the box.
+ */
+export function wireTextBox(box: HTMLTextAreaElement, keys?: KeyEdit) {
   let escaped = false;
   box.addEventListener("keydown", (e) => {
     if (e.key === "Escape") {
       escaped = true;
       return;
     }
-    if (e.key === "Tab" && !escaped && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+    const plain = !e.metaKey && !e.ctrlKey && !e.altKey;
+    if (keys && plain && !e.isComposing && (e.key === "Enter" ? !e.shiftKey : e.key === "Tab" && !escaped)) {
+      e.preventDefault();
+      const key = e.key === "Enter" ? "Enter" : e.shiftKey ? "Shift-Tab" : "Tab";
+      const change = keys(box.value, box.selectionStart, box.selectionEnd, key);
+      if (change) writeEdit(box, change.text, change.start, change.end);
+    } else if (!keys && e.key === "Tab" && !escaped && !e.shiftKey && plain) {
       e.preventDefault();
       document.execCommand("insertText", false, "\t");
     }
     escaped = false;
   });
   box.addEventListener("blur", () => (escaped = false));
+}
+
+/**
+ * Turn the box's text into `text` by native editing, as one undo step: only
+ * the span that differs is replaced. Then select `start` to `end`.
+ */
+function writeEdit(box: HTMLTextAreaElement, text: string, start: number, end: number) {
+  const old = box.value;
+  let head = 0;
+  while (head < old.length && head < text.length && old[head] === text[head]) head++;
+  let tail = 0;
+  while (tail < old.length - head && tail < text.length - head && old[old.length - 1 - tail] === text[text.length - 1 - tail]) tail++;
+  const middle = text.slice(head, text.length - tail);
+  box.setSelectionRange(head, old.length - tail);
+  if (middle) document.execCommand("insertText", false, middle);
+  else document.execCommand("delete");
+  box.setSelectionRange(start, end);
 }
 
 // Boxes replaced together by one replaceTogether call, in edit order, while
