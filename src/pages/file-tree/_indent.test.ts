@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { indentEdit, type Key } from "./_indent";
+import type { EditKey, KeyEdit } from "../../scripts/textbox";
+import { indentEdit, indenter } from "./_indent";
 
 /**
  * A text side written with its selection marked: `[` and `]` around a
@@ -14,10 +15,13 @@ function parse(marked: string): { text: string; start: number; end: number } {
   return { text: marked.replace("[", "").replace("]", ""), start, end };
 }
 
-/** Presses a key on a marked text side and gives the result marked the same way, or null. */
-function press(marked: string, key: Key): string | null {
+/**
+ * Presses a key on a marked text side and gives the result marked the same
+ * way, or null. `keys` is the key editor, a fresh measure by default.
+ */
+function press(marked: string, key: EditKey, keys: KeyEdit = indentEdit): string | null {
   const { text, start, end } = parse(marked);
-  const edit = indentEdit(text, start, end, key);
+  const edit = keys(text, start, end, key);
   if (!edit) return null;
   if (edit.start === edit.end) return edit.text.slice(0, edit.start) + "|" + edit.text.slice(edit.start);
   return edit.text.slice(0, edit.start) + "[" + edit.text.slice(edit.start, edit.end) + "]" + edit.text.slice(edit.end);
@@ -41,13 +45,16 @@ describe("indentEdit: Enter carries the current line's leading whitespace", () =
   });
 });
 
-describe("indentEdit: one step is the outline's own", () => {
+describe("indentEdit: the indent step is the outline's own", () => {
   it.each([
-    ["takes 2 spaces from the first indented line", t("a/", "  b", "c|"), t("a/", "  b", "  c|")],
-    ["takes 4 spaces from the first indented line", t("a/", "    b", "c|"), t("a/", "    b", "    c|")],
-    ["takes a tab from the first indented line", t("a/", "\tb", "c|"), t("a/", "\tb", "\tc|")],
-    ["takes the first indented line, not a deeper later one", t("a/", "  b/", "      c", "d|"), t("a/", "  b/", "      c", "  d|")],
+    ["takes 2 spaces from a line 2 deeper than its parent", t("a/", "  b", "c|"), t("a/", "  b", "  c|")],
+    ["takes 4 spaces from a line 4 deeper than its parent", t("a/", "    b", "c|"), t("a/", "    b", "    c|")],
+    ["takes a tab from a line a tab deeper than its parent", t("a/", "\tb", "c|"), t("a/", "\tb", "\tc|")],
+    ["takes a tab from tab lines nested two deep", t("a/", "\tb/", "\t\tc", "d|"), t("a/", "\tb/", "\t\tc", "\td|")],
+    ["takes the smallest gap between a line and its parent", t("a/", "    b/", "      c", "d|"), t("a/", "    b/", "      c", "  d|")],
+    ["takes the smallest gap, not a deeper later line's", t("a/", "  b/", "      c", "d|"), t("a/", "  b/", "      c", "  d|")],
     ["skips whitespace-only lines", t("a/", "      ", "  b", "c|"), t("a/", "      ", "  b", "  c|")],
+    ["takes an indented top-level line's whitespace when no line has a parent", t("  a/", "b|"), t("  a/", "  b|")],
     ["is a tab when no line is indented yet", t("a/", "b|"), t("a/", "\tb|")],
   ])("%s", (_, before, after) => {
     expect(press(before, "Tab")).toBe(after);
@@ -99,5 +106,36 @@ describe("indentEdit: Shift-Tab", () => {
     ["a tab outline", t("a/", "\tb", "\t[c", "\t\td]")],
   ])("undoes Tab exactly, below the first indented line, on %s", (_, before) => {
     expect(press(press(before, "Tab")!, "Shift-Tab")).toBe(before);
+  });
+});
+
+describe("indenter: the indent step holds through a run of Tab and Shift-Tab", () => {
+  const sample = t("my-app/", "  src|/", "    index.ts", "  README.md");
+
+  it("undoes a Tab on the first indented line exactly", () => {
+    const keys = indenter();
+    expect(press(press(sample, "Tab", keys)!, "Shift-Tab", keys)).toBe(sample);
+  });
+
+  it("adds the same step on each of repeated Tabs on the first indented line", () => {
+    const keys = indenter();
+    let text = sample;
+    for (let i = 0; i < 3; i++) text = press(text, "Tab", keys)!;
+    expect(text).toBe(t("my-app/", "        src|/", "    index.ts", "  README.md"));
+  });
+
+  it("undoes Tab exactly on an outline with only one indented line", () => {
+    const keys = indenter();
+    const before = t("a/", "  b|");
+    const tabbed = press(before, "Tab", keys)!;
+    expect(tabbed).toBe(t("a/", "    b|"));
+    expect(press(tabbed, "Shift-Tab", keys)).toBe(before);
+  });
+
+  it("measures the step again after a typed edit", () => {
+    const keys = indenter();
+    expect(press(t("a/", "  b|"), "Tab", keys)).toBe(t("a/", "    b|"));
+    // Typing "x" ends the run: the only gap is now 4 spaces.
+    expect(press(t("a/", "    bx|"), "Tab", keys)).toBe(t("a/", "        bx|"));
   });
 });

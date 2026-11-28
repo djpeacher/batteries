@@ -100,7 +100,7 @@ describe("draw: lines for the page", () => {
 });
 
 describe("draw: comments", () => {
-  it("lines up every comment's # 2 spaces past the longest commented line (the spec's comment example)", () => {
+  it("lines up every comment's # 2 spaces past the longest commented line, across names, wide characters and #s in names", () => {
     const outline = t(
       "src",
       "  # helpers",
@@ -121,6 +121,17 @@ describe("draw: comments", () => {
         "issue        #42.md",
       ),
     );
+  });
+});
+
+describe("draw: a tab inside a name", () => {
+  it.each([
+    // "a<TAB>b" ends at column 9: the tab reaches column 8, as the tree side shows it.
+    ["at the top level", t("a\tb  # c", "longer-name-x  # d"), t("a\tb      # c", "longer-name-x  # d")],
+    // "├── a<TAB>b" ends at column 9 too: the tab counts from the line's start, tree lines included.
+    ["under tree lines", t("r", "  a\tb  # c", "  longer-name-x  # d"), t("r", "├── a\tb          # c", "└── longer-name-x  # d")],
+  ])("reaches the next multiple of 8 columns, keeping the comment column, %s", (_, outline, drawn) => {
+    expect(tree(outline)).toBe(drawn);
   });
 });
 
@@ -185,7 +196,7 @@ describe("draw: wide characters", () => {
 });
 
 describe("draw: the first-visit sample", () => {
-  it("draws the sample as the spec shows it", () => {
+  it("draws the sample with its comments lined up", () => {
     const outline = t(
       "my-app/  # edit or clear this sample",
       "  src/",

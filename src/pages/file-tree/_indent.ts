@@ -1,25 +1,39 @@
 /**
  * Indent edits on File Tree's text side: Tab and Shift-Tab move whole lines
- * one step deeper or shallower, and Enter carries the current line's
+ * one indent step deeper or shallower, and Enter carries the current line's
  * indentation. Pure: the page applies the result as one native edit.
  */
 
-export type Key = "Tab" | "Shift-Tab" | "Enter";
-
-/** The text side's text and selection after an edit. */
-export type Edit = { text: string; start: number; end: number };
+import type { EditKey, KeyEdit, TextEdit } from "../../scripts/textbox";
+import { columns, leading, readOutline } from "./_draw";
 
 /** Where the line holding `pos` starts. */
 const lineStart = (text: string, pos: number) => text.lastIndexOf("\n", pos - 1) + 1;
 
-/** The leading spaces and tabs of `s`. */
-const leading = (s: string) => /^[ \t]*/.exec(s)![0];
+/**
+ * File Tree's key editor. The indent step holds through a run of Tab and
+ * Shift-Tab presses, so Shift-Tab always undoes a Tab exactly: it is measured
+ * again only when the text is not what the last press left (after typing,
+ * Enter, undo, paste, or any other edit).
+ */
+export function indenter(): KeyEdit {
+  let left: string | null = null;
+  let step = "";
+  return (text, start, end, key) => {
+    if (key === "Enter") return indentEdit(text, start, end, key);
+    if (text !== left) step = stepOf(text);
+    const change = indentEdit(text, start, end, key, step);
+    left = change ? change.text : text;
+    return change;
+  };
+}
 
 /**
  * The text side after pressing `key` with the selection from `start` to
- * `end`, or null when the key changes nothing.
+ * `end`, or null when the key changes nothing. `step` is the indent step,
+ * measured from `text` when not given.
  */
-export function indentEdit(text: string, start: number, end: number, key: Key): Edit | null {
+export function indentEdit(text: string, start: number, end: number, key: EditKey, step = stepOf(text)): TextEdit | null {
   if (key === "Enter") {
     // Only the whitespace before the cursor, so the new line is never deeper.
     const carried = "\n" + leading(text.slice(lineStart(text, start), start));
@@ -27,19 +41,11 @@ export function indentEdit(text: string, start: number, end: number, key: Key): 
     return { text: text.slice(0, start) + carried + text.slice(end), start: pos, end: pos };
   }
   const lines = touched(text, start, end);
-  const step = stepOf(text);
   if (key === "Tab") return apply(text, start, end, lines.map((at) => ({ at, removed: 0, added: step })));
-  const cuts = lines
+  const changes = lines
     .map((at) => ({ at, removed: oneStep(leading(text.slice(at, text.indexOf("\n", at) + 1 || undefined)), columns(step)), added: "" }))
     .filter((c) => c.removed > 0);
-  return cuts.length ? apply(text, start, end, cuts) : null;
-}
-
-/** Columns `ws` spans from a line's start, a tab advancing to the next multiple of 4. */
-function columns(ws: string): number {
-  let col = 0;
-  for (const ch of ws) col = ch === "\t" ? col + 4 - (col % 4) : col + 1;
-  return col;
+  return changes.length ? apply(text, start, end, changes) : null;
 }
 
 /**
@@ -53,15 +59,24 @@ function oneStep(ws: string, width: number): number {
 }
 
 /**
- * One step: the leading whitespace of the first indented line with a name
- * on it, or a tab when no line is indented yet.
+ * The indent step measured from the outline: the smallest gap between a
+ * line's indentation and its parent's, as the whitespace that makes it up.
+ * With no line deeper than a parent, the first indented line's whitespace;
+ * with no indented line, a tab.
  */
 function stepOf(text: string): string {
-  for (const line of text.split("\n")) {
-    const ws = leading(line);
-    if (ws && ws.length < line.length) return ws;
+  const lines = readOutline(text);
+  let step = "";
+  let gap = Infinity;
+  for (const line of lines) {
+    if (line.parent < 0) continue;
+    const parent = lines[line.parent];
+    const g = line.indent - parent.indent;
+    if (g >= gap) continue;
+    gap = g;
+    step = line.lead.startsWith(parent.lead) ? line.lead.slice(parent.lead.length) : " ".repeat(g);
   }
-  return "\t";
+  return step || lines.find((l) => l.lead)?.lead || "\t";
 }
 
 /**
@@ -78,17 +93,17 @@ function touched(text: string, start: number, end: number): number[] {
 }
 
 /** One line's change: `removed` characters at `at` give way to `added`. */
-type Cut = { at: number; removed: number; added: string };
+type LineChange = { at: number; removed: number; added: string };
 
 /**
  * Applies the line changes, in text order, and moves the selection so it
  * covers the same lines and text: a position at or past a change shifts
  * with it, and one inside removed whitespace goes to where it was.
  */
-function apply(text: string, start: number, end: number, cuts: Cut[]): Edit {
+function apply(text: string, start: number, end: number, changes: LineChange[]): TextEdit {
   const move = (pos: number) => {
     let shift = 0;
-    for (const c of cuts) {
+    for (const c of changes) {
       if (pos < c.at) break;
       shift += c.added.length - Math.min(c.removed, pos - c.at);
     }
@@ -96,7 +111,7 @@ function apply(text: string, start: number, end: number, cuts: Cut[]): Edit {
   };
   let out = "";
   let from = 0;
-  for (const c of cuts) {
+  for (const c of changes) {
     out += text.slice(from, c.at) + c.added;
     from = c.at + c.removed;
   }

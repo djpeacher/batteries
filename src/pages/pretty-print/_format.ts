@@ -64,16 +64,3 @@ function position(text: string, offset: number) {
   const lineStart = before.lastIndexOf("\n") + 1;
   return { line: before.split("\n").length, column: offset - lineStart + 1 };
 }
-
-/**
- * Text longer than this many characters (about 1 MB) waits for a pause in
- * typing before it is formatted, so each keystroke stays quick.
- */
-export const DEBOUNCE_LIMIT = 1_000_000;
-/** How long the pause is, in milliseconds. */
-export const DEBOUNCE_MS = 300;
-
-/** How long to wait after an edit before formatting text `length` characters long. */
-export function formatDelay(length: number): number {
-  return length > DEBOUNCE_LIMIT ? DEBOUNCE_MS : 0;
-}

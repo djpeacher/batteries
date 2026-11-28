@@ -9,7 +9,7 @@ afterEach(() => {
 });
 
 describe("File Tree's saved outline", () => {
-  it("shows the sample on a first visit, exactly as the spec writes it", () => {
+  it("shows the sample on a first visit", () => {
     expect(loadText()).toBe(
       [
         "my-app/  # edit or clear this sample",
@@ -80,7 +80,7 @@ describe("File Tree's save limit", () => {
 });
 
 describe("File Tree's first-visit sample", () => {
-  it("draws on the tree side as the spec shows", () => {
+  it("draws on the tree side with every comment in one column", () => {
     expect(draw(loadText()).text).toBe(
       [
         "my-app/           # edit or clear this sample",

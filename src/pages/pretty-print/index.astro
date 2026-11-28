@@ -96,7 +96,8 @@ const modes = [
 </Frame>
 
 <script>
-  import { format, formatDelay } from "./_format";
+  import { format } from "./_format";
+  import { editDelay } from "../../scripts/delay";
   import { lineWindow, rowAtHeight, renderError, renderLines, renderNotice } from "./_render";
   import { lineText, type Line } from "./_print";
   import { copiedText, foldAll, foldable, NO_FOLDS, reconcile, toggle, visibleRows, type Folds, type Row } from "./_fold";
@@ -315,7 +316,7 @@ const modes = [
   let waiting = 0;
   function scheduleRender() {
     clearTimeout(waiting);
-    const delay = formatDelay(box.value.length);
+    const delay = editDelay(box.value.length);
     if (delay) waiting = window.setTimeout(() => { if (!pending) pending = requestAnimationFrame(render); }, delay);
     else if (!pending) pending = requestAnimationFrame(render);
   }

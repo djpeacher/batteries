@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { format, formatDelay } from "./_format";
+import { format } from "./_format";
 import { MAX_DEPTH } from "./_reader";
 
 /** The formatted text for a paste that reads, failing the test if it doesn't. */
@@ -241,18 +241,6 @@ describe("format: text neither reader reads", () => {
     ["a bare top-level tuple", `'a', 'b'`, "Python", "unexpected text after the value", 1, 4],
   ])("reports %s", (_, input, language, message, line, column) => {
     expect(format(input)).toEqual({ kind: "error", language, error: { message, line, column } });
-  });
-});
-
-describe("formatDelay", () => {
-  it("formats at once up to about 1 MB of text", () => {
-    expect(formatDelay(0)).toBe(0);
-    expect(formatDelay(1_000_000)).toBe(0);
-  });
-
-  it("waits about 300 ms after the last keystroke above about 1 MB", () => {
-    expect(formatDelay(1_000_001)).toBe(300);
-    expect(formatDelay(5_000_000)).toBe(300);
   });
 });
 

@@ -78,11 +78,11 @@ const modes = [
 </Frame>
 
 <script>
-  import { draw, width } from "./_draw";
-  import { formatDelay } from "../pretty-print/_format";
+  import { draw, segments } from "./_draw";
+  import { editDelay } from "../../scripts/delay";
   import { escapeHtml, icon } from "../../lib/html";
   import { wireTextBox } from "../../scripts/textbox";
-  import { indentEdit } from "./_indent";
+  import { indenter } from "./_indent";
   import { loadMode, loadText, saveMode, saveText, type Mode } from "./_storage";
 
   const box = document.querySelector<HTMLTextAreaElement>("[data-text]")!;
@@ -110,13 +110,11 @@ const modes = [
   // A 2-column character (CJK, emoji) sits in a box exactly 2 columns wide:
   // fallback fonts draw it narrower than 2 Geist Mono columns, which would
   // pull the comment's # out of its column.
-  const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
   function cells(s: string): string {
     if (/^[\x20-\x7e]*$/.test(s)) return escapeHtml(s);
-    let html = "";
-    for (const { segment } of graphemes.segment(s))
-      html += width(segment) === 2 ? `<span class="ft-wide">${escapeHtml(segment)}</span>` : escapeHtml(segment);
-    return html;
+    return segments(s)
+      .map(({ text, wide }) => (wide ? `<span class="ft-wide">${escapeHtml(text)}</span>` : escapeHtml(text)))
+      .join("");
   }
 
   // Each drawn line is one row: its muted tree lines, its name, then any
@@ -139,12 +137,12 @@ const modes = [
 
   // Live: every input is saved and redraws, at most once per frame however
   // fast it comes. An outline over about 1 MB waits for a pause in typing
-  // first, with Pretty Print's threshold and delay; nothing marks the pause.
+  // first, with the shared threshold and delay; nothing marks the pause.
   let pending = 0;
   let waiting = 0;
   function scheduleRender() {
     clearTimeout(waiting);
-    const delay = formatDelay(box.value.length);
+    const delay = editDelay(box.value.length);
     if (delay) waiting = window.setTimeout(() => { if (!pending) pending = requestAnimationFrame(render); }, delay);
     else if (!pending) pending = requestAnimationFrame(render);
   }
@@ -176,8 +174,9 @@ const modes = [
   });
 
   box.value = loadText();
-  // Tab and Shift-Tab move whole lines a step; Enter carries the indentation.
-  wireTextBox(box, indentEdit);
+  // Tab and Shift-Tab move whole lines an indent step, which holds through a
+  // run of presses; Enter carries the indentation.
+  wireTextBox(box, indenter());
   render();
   if (!box.value) box.focus();
 </script>

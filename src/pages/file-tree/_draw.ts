@@ -23,7 +23,9 @@
  *   the name.
  * - Every comment's `#` sits in one column for the whole tree, 2 columns past
  *   the longest line that has a comment; wide characters (CJK, emoji) count
- *   as 2. Lines without a comment end at the name, with no padding.
+ *   as 2, and a tab inside a name reaches the next multiple of 8 columns from
+ *   the line's start, as the tree side and a terminal show it. Lines without
+ *   a comment end at the name, with no padding.
  */
 
 /** One drawn line of the tree side. */
@@ -44,7 +46,10 @@ export type Drawing = {
   lines: TreeLine[];
 };
 
+/** Columns a tab advances to the next multiple of, in indentation. */
 const TAB = 4;
+/** Columns a tab inside a name advances to the next multiple of, as the tree side shows it. */
+const NAME_TAB = 8;
 
 /** A line of the outline with a name, placed in the tree. */
 type Node = { name: string; comment: string; depth: number; parent: number };
@@ -80,31 +85,56 @@ export function draw(outline: string): Drawing {
   return { text: lines.map((l) => l.prefix + l.name + l.pad + l.comment).join("\n"), lines };
 }
 
+/** A line of the outline with a name: its indentation, the rest, and where it sits. */
+export type OutlineLine = {
+  /** The leading spaces and tabs. */
+  lead: string;
+  /** The column the name starts at. */
+  indent: number;
+  /** The name and any comment, trailing whitespace trimmed. */
+  content: string;
+  /** How many lines up the path it is from the top level; 0 at top level. */
+  depth: number;
+  /** The index of its parent line, or -1 at top level. */
+  parent: number;
+};
+
 /** Every line with a name, with its depth and parent, by the reading rules above. */
-function place(outline: string): Node[] {
-  const nodes: Node[] = [];
-  // The lines on the path to the current line: each one's indent and index.
-  const path: { indent: number; node: number }[] = [];
+export function readOutline(outline: string): OutlineLine[] {
+  const lines: OutlineLine[] = [];
+  // The lines on the path to the current line, by index.
+  const path: number[] = [];
   for (const raw of outline.split(/\r\n?|\n/)) {
     const line = raw.trimEnd();
     if (!line.trim()) continue;
-    const lead = /^[ \t]*/.exec(line)![0];
+    const lead = leading(line);
     const indent = columns(lead);
-    while (path.length && path.at(-1)!.indent > indent) path.pop();
-    if (path.length && path.at(-1)!.indent === indent) path.pop();
-    const depth = path.length;
-    const content = line.slice(lead.length);
-    const m = COMMENT.exec(content);
-    const name = m ? content.slice(0, m.index) : content;
-    const comment = m ? content.slice(m.index + m[0].length - 1) : "";
-    nodes.push({ name, comment, depth, parent: depth ? path.at(-1)!.node : -1 });
-    path.push({ indent, node: nodes.length - 1 });
+    while (path.length && lines[path.at(-1)!].indent > indent) path.pop();
+    if (path.length && lines[path.at(-1)!].indent === indent) path.pop();
+    lines.push({ lead, indent, content: line.slice(lead.length), depth: path.length, parent: path.length ? path.at(-1)! : -1 });
+    path.push(lines.length - 1);
   }
-  return nodes;
+  return lines;
 }
 
-/** The column a run of spaces and tabs ends at. */
-function columns(lead: string): number {
+/** Every line with a name, its comment split off. */
+function place(outline: string): Node[] {
+  return readOutline(outline).map(({ content, depth, parent }) => {
+    const m = COMMENT.exec(content);
+    return {
+      name: m ? content.slice(0, m.index) : content,
+      comment: m ? content.slice(m.index + m[0].length - 1) : "",
+      depth,
+      parent,
+    };
+  });
+}
+
+/** The leading spaces and tabs of `s`. */
+export const leading = (s: string) => /^[ \t]*/.exec(s)![0];
+
+/** The column a run of leading spaces and tabs ends at: a tab advances to the next multiple of 4. */
+export function columns(lead: string): number {
   let col = 0;
   for (const c of lead) col = c === "\t" ? (Math.floor(col / TAB) + 1) * TAB : col + 1;
   return col;
@@ -115,15 +145,24 @@ const WIDE = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff
 /** Drawn as an emoji: emoji presentation by default, or asked for with VS16. */
 const EMOJI = /\p{Emoji_Presentation}|\ufe0f/u;
 /** Takes no column of its own: combining marks, zero-width and format characters. */
-const ZERO = /^[\p{Mn}\p{Me}\p{Cf}]+$/u;
+const ZERO_WIDTH = /^[\p{Mn}\p{Me}\p{Cf}]+$/u;
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 
-/** How many columns a string takes in a monospace font: wide characters and emoji count as 2. */
+/** Columns one grapheme other than a tab takes: 2 for wide characters and emoji. */
+const cellWidth = (g: string) => (EMOJI.test(g) || WIDE.test(g) ? 2 : ZERO_WIDTH.test(g) ? 0 : 1);
+
+/**
+ * How many columns a line's text takes in a monospace font, from the line's
+ * start: wide characters and emoji count as 2, and a tab reaches the next
+ * multiple of 8.
+ */
 export function width(s: string): number {
   let w = 0;
-  for (const { segment } of graphemes.segment(s)) {
-    if (EMOJI.test(segment) || WIDE.test(segment)) w += 2;
-    else if (!ZERO.test(segment)) w += 1;
-  }
+  for (const { segment } of graphemes.segment(s)) w = segment === "\t" ? (Math.floor(w / NAME_TAB) + 1) * NAME_TAB : w + cellWidth(segment);
   return w;
+}
+
+/** A string split into graphemes, each marked when it takes 2 columns. */
+export function segments(s: string): { text: string; wide: boolean }[] {
+  return Array.from(graphemes.segment(s), ({ segment }) => ({ text: segment, wide: cellWidth(segment) === 2 }));
 }

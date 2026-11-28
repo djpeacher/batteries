@@ -12,13 +12,14 @@
  *   still the only way to edit a textarea onto its native undo stack.
  */
 
+/** The keys a text box can hand to a key editor. */
+export type EditKey = "Tab" | "Shift-Tab" | "Enter";
+
+/** A text box's text and selection. */
+export type TextEdit = { text: string; start: number; end: number };
+
 /** A text box's text and selection after a key, or null when the key changes nothing. */
-export type KeyEdit = (
-  text: string,
-  start: number,
-  end: number,
-  key: "Tab" | "Shift-Tab" | "Enter",
-) => { text: string; start: number; end: number } | null;
+export type KeyEdit = (text: string, start: number, end: number, key: EditKey) => TextEdit | null;
 
 /**
  * Wire Tab and Escape-then-Tab on a text box. With `keys`, Tab, Shift-Tab
@@ -38,7 +39,7 @@ export function wireTextBox(box: HTMLTextAreaElement, keys?: KeyEdit) {
       e.preventDefault();
       const key = e.key === "Enter" ? "Enter" : e.shiftKey ? "Shift-Tab" : "Tab";
       const change = keys(box.value, box.selectionStart, box.selectionEnd, key);
-      if (change) writeEdit(box, change.text, change.start, change.end);
+      if (change) writeEdit(box, change);
     } else if (!keys && e.key === "Tab" && !escaped && !e.shiftKey && plain) {
       e.preventDefault();
       document.execCommand("insertText", false, "\t");
@@ -52,7 +53,7 @@ export function wireTextBox(box: HTMLTextAreaElement, keys?: KeyEdit) {
  * Turn the box's text into `text` by native editing, as one undo step: only
  * the span that differs is replaced. Then select `start` to `end`.
  */
-function writeEdit(box: HTMLTextAreaElement, text: string, start: number, end: number) {
+function writeEdit(box: HTMLTextAreaElement, { text, start, end }: TextEdit) {
   const old = box.value;
   let head = 0;
   while (head < old.length && head < text.length && old[head] === text[head]) head++;
